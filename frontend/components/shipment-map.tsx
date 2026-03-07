@@ -531,27 +531,48 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
 
           {/* Layer 6: Shipment route arcs */}
           {routeData.map(({ shipment, from, to }) => (
-            <Line
-              key={shipment.shipment_id}
-              from={from}
-              to={to}
-              stroke={getRouteColor(shipment.status)}
-              strokeWidth={((shipment.status === "delayed" || shipment.status === "failed") ? 2 : 1.5) * inv}
-              strokeLinecap="round"
-              strokeDasharray={
-                shipment.status === "in_transit" ? "6 4" :
-                shipment.status === "delayed" ? "4 3" : undefined
-              }
-              style={{
-                opacity: hoveredShipment?.shipment_id === shipment.shipment_id ? 1 : 0.6,
-              }}
-              className={shipment.status === "in_transit" ? "animate-dash" : ""}
-              onMouseEnter={(evt: React.MouseEvent) => {
-                setHoveredShipment(shipment)
-                setTooltipPos({ x: evt.clientX, y: evt.clientY })
-              }}
-              onMouseLeave={() => setHoveredShipment(null)}
-            />
+            <g key={shipment.shipment_id}>
+              {/* Invisible wide hit area for reliable hover */}
+              <Line
+                from={from}
+                to={to}
+                stroke="transparent"
+                strokeWidth={Math.max(8, 12 * inv)}
+                strokeLinecap="round"
+                style={{ cursor: "pointer" }}
+                onMouseEnter={(evt: React.MouseEvent) => {
+                  setHoveredShipment(shipment)
+                  const rect = mapRef.current?.getBoundingClientRect()
+                  if (rect) {
+                    setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
+                  }
+                }}
+                onMouseMove={(evt: React.MouseEvent) => {
+                  const rect = mapRef.current?.getBoundingClientRect()
+                  if (rect) {
+                    setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
+                  }
+                }}
+                onMouseLeave={() => setHoveredShipment(null)}
+              />
+              {/* Visible line */}
+              <Line
+                from={from}
+                to={to}
+                stroke={getRouteColor(shipment.status)}
+                strokeWidth={((shipment.status === "delayed" || shipment.status === "failed") ? 2 : 1.5) * inv}
+                strokeLinecap="round"
+                strokeDasharray={
+                  shipment.status === "in_transit" ? "6 4" :
+                  shipment.status === "delayed" ? "4 3" : undefined
+                }
+                style={{
+                  opacity: hoveredShipment?.shipment_id === shipment.shipment_id ? 1 : 0.6,
+                  pointerEvents: "none",
+                }}
+                className={shipment.status === "in_transit" ? "animate-dash" : ""}
+              />
+            </g>
           ))}
 
           {/* Layer 7: Shipment city markers (always visible) */}
@@ -609,30 +630,37 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
       {/* Tooltip */}
       {hoveredShipment && (
         <div
-          className="fixed z-[9999] pointer-events-none px-3 py-2 rounded-lg border border-border bg-card text-card-foreground shadow-xl"
-          style={{ left: tooltipPos.x + 12, top: tooltipPos.y - 40 }}
+          className="absolute z-[9999] pointer-events-none px-3 py-2.5 rounded-lg border border-white/[0.1] shadow-2xl"
+          style={{
+            left: tooltipPos.x + 14,
+            top: tooltipPos.y - 50,
+            backgroundColor: "rgba(10, 10, 12, 0.95)",
+            backdropFilter: "blur(12px)",
+          }}
         >
-          <p className="text-xs font-semibold">{hoveredShipment.shipment_id}</p>
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-xs font-bold text-white">{hoveredShipment.shipment_id}</p>
+          <p className="text-[11px] text-zinc-300 mt-0.5">
             {hoveredShipment.origin} → {hoveredShipment.destination}
           </p>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1.5">
             <span
               className={cn(
-                "text-[10px] font-medium px-1.5 py-0.5 rounded",
+                "text-[10px] font-semibold px-1.5 py-0.5 rounded",
                 (hoveredShipment.status === "delayed" || hoveredShipment.status === "failed")
                   ? "bg-red-500/20 text-red-400"
                   : hoveredShipment.status === "in_transit"
                   ? "bg-amber-500/20 text-amber-400"
+                  : hoveredShipment.status === "out_for_delivery"
+                  ? "bg-blue-500/20 text-blue-400"
                   : "bg-emerald-500/20 text-emerald-400"
               )}
             >
               {getStatusLabel(hoveredShipment.status)}
             </span>
-            <span className="text-[10px] text-muted-foreground">
-              {getStatusLabel(hoveredShipment.status)}
-            </span>
           </div>
+          <p className="text-[10px] text-zinc-400 mt-1">
+            Carrier: <span className="text-zinc-200">{hoveredShipment.carrier}</span>
+          </p>
         </div>
       )}
 

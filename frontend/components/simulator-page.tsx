@@ -13,10 +13,25 @@ import {
   CheckCircle,
   Loader2,
 } from "lucide-react"
-import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
 import type { SimulationResponse } from "@/lib/types"
+
+// Mock trigger — returns a fake success response after a short delay
+function mockTrigger(title: string): () => Promise<SimulationResponse> {
+  return () =>
+    new Promise((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            status: "ok",
+            message: `${title} scenario triggered successfully (mock).`,
+            events_generated: Math.floor(Math.random() * 8) + 3,
+          }),
+        800
+      )
+    )
+}
 
 interface ScenarioConfig {
   id: string
@@ -45,7 +60,7 @@ export default function SimulatorPage() {
       color: "text-amber-400",
       borderColor: "border-amber-500/30",
       bgColor: "bg-amber-500/10",
-      trigger: () => api.simulateWarehouseCongestion(),
+      trigger: mockTrigger("Warehouse Congestion"),
     },
     {
       id: "carrier",
@@ -57,7 +72,7 @@ export default function SimulatorPage() {
       color: "text-red-400",
       borderColor: "border-red-500/30",
       bgColor: "bg-red-500/10",
-      trigger: () => api.simulateCarrierFailure(),
+      trigger: mockTrigger("Carrier Failure"),
     },
     {
       id: "traffic",
@@ -69,7 +84,7 @@ export default function SimulatorPage() {
       color: "text-purple-400",
       borderColor: "border-purple-500/30",
       bgColor: "bg-purple-500/10",
-      trigger: () => api.simulateTrafficSpike(),
+      trigger: mockTrigger("Traffic Spike"),
     },
   ]
 

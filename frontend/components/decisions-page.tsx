@@ -25,37 +25,32 @@ import {
 } from "lucide-react"
 import { useDecisions, useAgentMetrics } from "@/hooks/use-data"
 import { cn, getRiskColor, getRiskLabel, formatPercent, formatTimeAgo } from "@/lib/utils"
-import { api } from "@/lib/api"
 import { ReasoningChain } from "@/components/reasoning-chain"
 
 export default function DecisionsPage() {
-  const { data: decisions, loading, refetch } = useDecisions()
+  const { data: decisions, loading, setData: setDecisions } = useDecisions()
   const { data: metrics } = useAgentMetrics()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-  const handleApprove = async (decisionId: string) => {
+  const handleApprove = (decisionId: string) => {
     setActionLoading(decisionId)
-    try {
-      await api.approveDecision(decisionId)
-      refetch()
-    } catch {
-      // error handling
-    } finally {
+    setTimeout(() => {
+      setDecisions(decisions.map(d =>
+        d.decision_id === decisionId ? { ...d, status: "approved", outcome: "completed" } : d
+      ))
       setActionLoading(null)
-    }
+    }, 500)
   }
 
-  const handleReject = async (decisionId: string) => {
+  const handleReject = (decisionId: string) => {
     setActionLoading(decisionId)
-    try {
-      await api.rejectDecision(decisionId)
-      refetch()
-    } catch {
-      // error handling
-    } finally {
+    setTimeout(() => {
+      setDecisions(decisions.map(d =>
+        d.decision_id === decisionId ? { ...d, status: "rejected", outcome: "rejected" } : d
+      ))
       setActionLoading(null)
-    }
+    }, 500)
   }
 
   if (loading) {

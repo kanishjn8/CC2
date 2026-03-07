@@ -293,6 +293,8 @@ export default function OverviewPage() {
                       borderRadius: "8px",
                       color: "#fafafa",
                     }}
+                    itemStyle={{ color: "#fafafa", fontSize: "12px" }}
+                    labelStyle={{ color: "#a1a1aa", fontSize: "11px" }}
                   />
                 </PieChart>
               </ResponsiveContainer>
