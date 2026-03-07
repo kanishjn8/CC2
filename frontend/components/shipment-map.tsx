@@ -533,30 +533,7 @@ function ShipmentMapInner({ shipments, rerouteData }: ShipmentMapProps) {
           {/* Layer 6: Shipment route arcs */}
           {routeData.map(({ shipment, from, to }) => (
             <g key={shipment.shipment_id}>
-              {/* Invisible wide hit area for reliable hover */}
-              <Line
-                from={from}
-                to={to}
-                stroke="transparent"
-                strokeWidth={Math.max(8, 12 * inv)}
-                strokeLinecap="round"
-                style={{ cursor: "pointer" }}
-                onMouseEnter={(evt: React.MouseEvent) => {
-                  setHoveredShipment(shipment)
-                  const rect = mapRef.current?.getBoundingClientRect()
-                  if (rect) {
-                    setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
-                  }
-                }}
-                onMouseMove={(evt: React.MouseEvent) => {
-                  const rect = mapRef.current?.getBoundingClientRect()
-                  if (rect) {
-                    setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
-                  }
-                }}
-                onMouseLeave={() => setHoveredShipment(null)}
-              />
-              {/* Visible line */}
+              {/* Visible line (rendered first, behind hit area) */}
               <Line
                 from={from}
                 to={to}
@@ -572,6 +549,29 @@ function ShipmentMapInner({ shipments, rerouteData }: ShipmentMapProps) {
                   pointerEvents: "none",
                 }}
                 className={shipment.status === "in_transit" ? "animate-dash" : ""}
+              />
+              {/* Wide invisible hit area on top — pointerEvents:"stroke" captures events on transparent strokes */}
+              <Line
+                from={from}
+                to={to}
+                stroke="transparent"
+                strokeWidth={Math.max(12, 20 * inv)}
+                strokeLinecap="round"
+                style={{ cursor: "pointer", pointerEvents: "stroke" } as React.CSSProperties}
+                onMouseEnter={(evt: React.MouseEvent) => {
+                  setHoveredShipment(shipment)
+                  const rect = mapRef.current?.getBoundingClientRect()
+                  if (rect) {
+                    setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
+                  }
+                }}
+                onMouseMove={(evt: React.MouseEvent) => {
+                  const rect = mapRef.current?.getBoundingClientRect()
+                  if (rect) {
+                    setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
+                  }
+                }}
+                onMouseLeave={() => setHoveredShipment(null)}
               />
             </g>
           ))}
