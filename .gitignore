@@ -1,1 +1,12 @@
-.env
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+backend/.venv/
+
+# Env files
+backend/.env
+
+# OS files
+.DS_Store
