@@ -132,3 +132,32 @@ CREATE TABLE IF NOT EXISTS simulation_events (
 CREATE INDEX IF NOT EXISTS ix_simulation_events_event_type ON simulation_events (event_type);
 CREATE INDEX IF NOT EXISTS ix_simulation_events_entity_id  ON simulation_events (entity_id);
 CREATE INDEX IF NOT EXISTS ix_simulation_events_created_at ON simulation_events (created_at);
+
+-- ---------------------------------------------------------------------------
+-- decision_log  (AI Agent)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS decision_log (
+    id                  SERIAL       PRIMARY KEY,
+    decision_id         VARCHAR(64)  NOT NULL UNIQUE,
+    risk_type           VARCHAR(64)  NOT NULL,
+    entity_id           VARCHAR(64)  NOT NULL,
+    shipment_id         VARCHAR(64),
+    risk_score          FLOAT        NOT NULL,
+    problem             TEXT         NOT NULL,
+    evidence            TEXT,
+    root_cause          TEXT         NOT NULL,
+    confidence          FLOAT        NOT NULL,
+    recommended_action  VARCHAR(64)  NOT NULL,
+    action_details      TEXT,
+    requires_approval   BOOLEAN      NOT NULL DEFAULT FALSE,
+    status              VARCHAR(32)  NOT NULL DEFAULT 'executed',
+    outcome             VARCHAR(32)  NOT NULL DEFAULT 'pending',
+    sla_impact          FLOAT,
+    created_at          TIMESTAMP    NOT NULL DEFAULT now(),
+    resolved_at         TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_decision_log_decision_id ON decision_log (decision_id);
+CREATE INDEX IF NOT EXISTS ix_decision_log_shipment_id ON decision_log (shipment_id);
+CREATE INDEX IF NOT EXISTS ix_decision_log_created_at  ON decision_log (created_at);

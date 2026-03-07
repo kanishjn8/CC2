@@ -13,6 +13,8 @@ dependencies = [
     "numpy>=1.26.0",
     "pandas>=2.2.0",
     "python-dotenv>=1.2.2",
+    "scikit-learn>=1.4.0",
+    "google-generativeai>=0.8.0",
 ]
 
 [project.optional-dependencies]

@@ -29,3 +29,14 @@ SEED_WAREHOUSES: int = int(os.getenv("SEED_WAREHOUSES", "5"))
 SEED_CARRIERS: int = int(os.getenv("SEED_CARRIERS", "8"))
 SEED_ROUTES: int = int(os.getenv("SEED_ROUTES", "12"))
 SEED_SHIPMENTS: int = int(os.getenv("SEED_SHIPMENTS", "20"))
+
+# Agent configuration
+AGENT_TICK_INTERVAL: float = float(os.getenv("AGENT_TICK_INTERVAL", "10.0"))
+RISK_THRESHOLD: float = float(os.getenv("RISK_THRESHOLD", "0.6"))
+
+# Gemini LLM configuration
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+GEMINI_PRIMARY_MODEL: str = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-3.1-flash")
+GEMINI_FALLBACK_MODEL: str = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
+BOTTLENECK_THRESHOLD: float = float(os.getenv("BOTTLENECK_THRESHOLD", "0.85"))
+CARRIER_RELIABILITY_THRESHOLD: float = float(os.getenv("CARRIER_RELIABILITY_THRESHOLD", "0.5"))

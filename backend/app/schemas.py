@@ -95,3 +95,68 @@ class SimStatusResponse(BaseModel):
     warehouse_count: int
     carrier_count: int
     route_count: int
+
+
+# ── Agent ────────────────────────────────────────────────────────────────────
+
+class DecisionLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    decision_id: str
+    risk_type: str
+    entity_id: str
+    shipment_id: Optional[str] = None
+    risk_score: float
+    problem: str
+    evidence: Optional[str] = None
+    root_cause: str
+    confidence: float
+    recommended_action: str
+    action_details: Optional[str] = None
+    requires_approval: bool
+    status: str
+    outcome: str
+    sla_impact: Optional[float] = None
+    created_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+
+
+class AgentMetricsOut(BaseModel):
+    total_decisions: int
+    intervention_success_rate: float
+    false_positive_rate: float
+    average_confidence: float
+    outcomes: dict
+    actions_breakdown: dict
+    risk_type_breakdown: dict
+
+
+class AgentStatusOut(BaseModel):
+    running: bool
+    cycle_count: int
+    model_trained: bool
+    total_decisions: int
+    pending_approvals: int
+
+
+class AgentAnalyzeResponse(BaseModel):
+    status: str
+    message: str
+    risks_detected: int
+    risks: list = Field(default_factory=list)
+
+
+class ApprovalRequest(BaseModel):
+    approved: bool
+
+
+class ApprovalResponse(BaseModel):
+    status: str
+    message: str
+    decision_id: str
+    result: Optional[dict] = None
+
+
+class AgentSummaryOut(BaseModel):
+    cycle_count: int
+    summary: str

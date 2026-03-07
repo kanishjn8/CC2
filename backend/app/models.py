@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     Column,
     Integer,
     String,
@@ -118,3 +119,27 @@ class SimulationEvent(Base):
     payload = Column(Text, nullable=True)  # JSON string with event details
     sim_time = Column(Float, nullable=True)           # simulation clock value
     created_at = Column(DateTime, server_default=func.now(), index=True)
+
+
+class DecisionLog(Base):
+    """Agent decision log — records every Observe→Reason→Decide→Act cycle."""
+    __tablename__ = "decision_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    decision_id = Column(String(64), unique=True, nullable=False, index=True)
+    risk_type = Column(String(64), nullable=False)           # delay_risk | bottleneck | carrier_degradation
+    entity_id = Column(String(64), nullable=False, index=True)
+    shipment_id = Column(String(64), nullable=True, index=True)
+    risk_score = Column(Float, nullable=False)
+    problem = Column(Text, nullable=False)
+    evidence = Column(Text, nullable=True)                   # JSON
+    root_cause = Column(Text, nullable=False)
+    confidence = Column(Float, nullable=False)
+    recommended_action = Column(String(64), nullable=False)  # reroute_shipment | prioritize_loading | ...
+    action_details = Column(Text, nullable=True)             # JSON
+    requires_approval = Column(Boolean, default=False, nullable=False)
+    status = Column(String(32), default="executed", nullable=False)  # executed | pending_approval | approved | rejected
+    outcome = Column(String(32), default="pending", nullable=False)  # pending | success | failed | rejected
+    sla_impact = Column(Float, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    resolved_at = Column(DateTime, nullable=True)

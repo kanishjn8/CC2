@@ -16,7 +16,8 @@ from app.models import *  # noqa: ensure all models are registered
 from app.seed import seed_all
 from app.database import SessionLocal
 from app.simulation import simulation
-from app.routers import data, simulate
+from app.routers import data, simulate, agent
+from app.ai_agent import agent_loop
 from app.config import SEED_WAREHOUSES, SEED_CARRIERS, SEED_ROUTES, SEED_SHIPMENTS
 
 
@@ -57,9 +58,15 @@ async def lifespan(app: FastAPI):
     simulation.start()
     print("[startup] Simulation engine started.")
 
+    agent_loop.initialize()
+    agent_loop.start()
+    print("[startup] AI Agent started.")
+
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
+    agent_loop.stop()
+    print("[shutdown] AI Agent stopped.")
     simulation.stop()
     print("[shutdown] Simulation engine stopped.")
 
@@ -85,6 +92,7 @@ app.add_middleware(
 # ── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(data.router, prefix="/api")
 app.include_router(simulate.router, prefix="/api")
+app.include_router(agent.router, prefix="/api")
 
 
 @app.get("/", tags=["Health"])
