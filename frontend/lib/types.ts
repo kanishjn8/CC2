@@ -156,3 +156,43 @@ export interface AgentAnalyzeResponse {
   risks_detected: number;
   risks: unknown[];
 }
+
+// ---- Route Geometry for reroute visualization ----
+
+export interface RouteGeometry {
+  type: string;                // "LineString"
+  coordinates: number[][];     // [[lon, lat], ...]
+}
+
+export interface RerouteResult {
+  status: string;
+  shipment_id: string;
+  old_route: string | null;
+  new_route: string | null;
+  new_route_origin: string | null;
+  new_route_destination: string | null;
+  eta_improvement_hours: number;
+  old_route_geometry: RouteGeometry | null;
+  new_route_geometry: RouteGeometry | null;
+  message: string;
+}
+
+export interface SendAlertResult {
+  status: string;
+  alert_type: string;
+  shipment_id: string;
+  message: string;
+  decision_id: string | null;
+}
+
+// ---- LLM Usage Statistics ----
+
+export interface LlmStats {
+  total_calls: number;
+  total_skipped: number;
+  total_failures: number;
+  cooldown_seconds: number;
+  api_key_set: boolean;
+  primary_model: string;
+  fallback_model: string;
+}

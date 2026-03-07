@@ -14,6 +14,7 @@ rule-based fallback, so LLM failures are always graceful.
 """
 
 import json
+import logging
 import time
 import traceback
 from typing import Optional
@@ -23,9 +24,14 @@ from google.genai import types
 
 import app.config as _cfg   # imported as module so values are always re-read live
 
+log = logging.getLogger("cc2.llm")
+
 _client: genai.Client | None = None
 _client_api_key: str = ""    # tracks which key the client was built with
 _last_call_time: float = 0.0  # monotonic time of the last successful call
+_total_calls: int = 0
+_total_skipped: int = 0
+_total_failures: int = 0
 
 
 def _get_client() -> "genai.Client | None":
@@ -45,6 +51,7 @@ def call_llm(
     system_instruction: str = "",
     temperature: float = 0.3,
     max_tokens: int = 1024,
+    caller: str = "",
 ) -> Optional[str]:
     """Call Gemini with primary → fallback → None chain.
 
@@ -52,7 +59,9 @@ def call_llm(
     so .env changes take effect on the next restart without touching this file.
     Returns the response text, or None if both models fail / cooldown active.
     """
-    global _last_call_time
+    global _last_call_time, _total_calls, _total_skipped, _total_failures
+
+    caller_tag = f"[{caller}] " if caller else ""
 
     # Read live config values on every call
     api_key  = _cfg.GEMINI_API_KEY
@@ -61,6 +70,8 @@ def call_llm(
     cooldown = _cfg.LLM_CALL_COOLDOWN
 
     if not api_key:
+        log.warning("🤖 %sLLM SKIP — no GEMINI_API_KEY configured", caller_tag)
+        _total_skipped += 1
         return None
 
     # Rate-limit guard — skip if called too soon, caller falls back to rule-based
@@ -68,20 +79,29 @@ def call_llm(
     elapsed = now - _last_call_time
     if elapsed < cooldown:
         remaining = cooldown - elapsed
-        print(
-            f"[agent-llm] cooldown active — skipping LLM call "
-            f"({remaining:.0f}s / {cooldown:.0f}s remaining)"
+        log.info(
+            "🤖 %sLLM COOLDOWN — skipping (%.0fs / %.0fs remaining) "
+            "[total: %d calls, %d skipped, %d failed]",
+            caller_tag, remaining, cooldown,
+            _total_calls, _total_skipped, _total_failures,
         )
+        _total_skipped += 1
         return None
 
     client = _get_client()
     if client is None:
+        log.warning("🤖 %sLLM SKIP — client initialization failed", caller_tag)
+        _total_skipped += 1
         return None
+
+    prompt_preview = prompt[:120].replace("\n", " ")
+    log.info("🤖 %sLLM CALLING — prompt: %s…", caller_tag, prompt_preview)
 
     for model_name in [primary, fallback]:
         if not model_name:
             continue
         try:
+            t0 = time.monotonic()
             response = client.models.generate_content(
                 model=model_name,
                 contents=prompt,
@@ -91,14 +111,29 @@ def call_llm(
                     max_output_tokens=max_tokens,
                 ),
             )
+            duration = time.monotonic() - t0
             if response and response.text:
                 _last_call_time = time.monotonic()  # reset cooldown on success
-                print(f"[agent-llm] ✓ {model_name} responded")
-                return response.text.strip()
+                _total_calls += 1
+                text = response.text.strip()
+                log.info(
+                    "🤖 %sLLM ✅ SUCCESS — model=%s  time=%.1fs  len=%d  "
+                    "[total: %d calls, %d skipped]",
+                    caller_tag, model_name, duration, len(text),
+                    _total_calls, _total_skipped,
+                )
+                log.debug("🤖 %sLLM RESPONSE: %s", caller_tag, text[:300])
+                return text
         except Exception:
-            print(f"[agent-llm] {model_name} failed:\n{traceback.format_exc()}")
+            _total_failures += 1
+            log.error(
+                "🤖 %sLLM ❌ FAILED — model=%s  [total failures: %d]\n%s",
+                caller_tag, model_name, _total_failures, traceback.format_exc(),
+            )
             continue
 
+    _total_failures += 1
+    log.error("🤖 %sLLM ❌ ALL MODELS FAILED — falling back to rule-based", caller_tag)
     return None  # Both models failed → caller uses rule-based
 
 
@@ -107,9 +142,10 @@ def call_llm_json(
     system_instruction: str = "",
     temperature: float = 0.2,
     max_tokens: int = 1024,
+    caller: str = "",
 ) -> Optional[dict]:
     """Call LLM and parse the response as JSON. Returns None on any failure."""
-    text = call_llm(prompt, system_instruction, temperature, max_tokens)
+    text = call_llm(prompt, system_instruction, temperature, max_tokens, caller=caller)
     if not text:
         return None
 
@@ -121,7 +157,22 @@ def call_llm_json(
         cleaned = "\n".join(lines)
 
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
+        log.debug("🤖 [%s] LLM JSON parsed OK: %s", caller, str(parsed)[:200])
+        return parsed
     except json.JSONDecodeError:
-        print(f"[agent-llm] Failed to parse JSON from LLM response: {text[:200]}")
+        log.error("🤖 [%s] LLM JSON PARSE FAILED: %s", caller, text[:200])
         return None
+
+
+def get_llm_stats() -> dict:
+    """Return LLM usage statistics for monitoring."""
+    return {
+        "total_calls": _total_calls,
+        "total_skipped": _total_skipped,
+        "total_failures": _total_failures,
+        "cooldown_seconds": _cfg.LLM_CALL_COOLDOWN,
+        "api_key_set": bool(_cfg.GEMINI_API_KEY),
+        "primary_model": _cfg.GEMINI_PRIMARY_MODEL,
+        "fallback_model": _cfg.GEMINI_FALLBACK_MODEL,
+    }

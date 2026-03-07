@@ -22,35 +22,85 @@ import {
   Eye,
   ChevronDown,
   ChevronUp,
+  Navigation,
+  Bell,
+  Sparkles,
 } from "lucide-react"
-import { useDecisions, useAgentMetrics } from "@/hooks/use-data"
+import { useDecisions, useAgentMetrics, useLlmStats } from "@/hooks/use-data"
 import { cn, getRiskColor, getRiskLabel, formatPercent, formatTimeAgo } from "@/lib/utils"
+import { api } from "@/lib/api"
 import { ReasoningChain } from "@/components/reasoning-chain"
+import type { RerouteResult } from "@/lib/types"
+import { useRerouteContext } from "@/hooks/use-reroute-context"
 
-export default function DecisionsPage() {
-  const { data: decisions, loading, setData: setDecisions } = useDecisions()
+interface DecisionsPageProps {
+  onReroute?: (result: RerouteResult) => void
+}
+
+export default function DecisionsPage({ onReroute: onRerouteProp }: DecisionsPageProps) {
+  const { setRerouteData } = useRerouteContext()
+  const { data: decisions, loading, refetch } = useDecisions()
   const { data: metrics } = useAgentMetrics()
+  const { data: llmStats } = useLlmStats()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null)
 
-  const handleApprove = (decisionId: string) => {
-    setActionLoading(decisionId)
-    setTimeout(() => {
-      setDecisions(decisions.map(d =>
-        d.decision_id === decisionId ? { ...d, status: "approved", outcome: "completed" } : d
-      ))
-      setActionLoading(null)
-    }, 500)
+  // Support both prop-based and context-based reroute notification
+  const onReroute = (result: RerouteResult) => {
+    setRerouteData(result)
+    onRerouteProp?.(result)
   }
 
-  const handleReject = (decisionId: string) => {
+  const showToast = (type: "success" | "error" | "info", message: string) => {
+    setToast({ type, message })
+    setTimeout(() => setToast(null), 5000)
+  }
+
+  const handleApprove = async (decisionId: string, action: string) => {
     setActionLoading(decisionId)
-    setTimeout(() => {
-      setDecisions(decisions.map(d =>
-        d.decision_id === decisionId ? { ...d, status: "rejected", outcome: "rejected" } : d
-      ))
+    try {
+      const res = await api.approveDecision(decisionId)
+
+      // If this was a reroute action and we got route geometry back
+      if (action === "reroute_shipment" && res.result) {
+        const rerouteResult: RerouteResult = {
+          status: "rerouted",
+          shipment_id: res.result.old_route ? String(res.result.old_route) : "",
+          old_route: res.result.old_route ? String(res.result.old_route) : null,
+          new_route: res.result.new_route ? String(res.result.new_route) : null,
+          new_route_origin: res.result.new_route_origin ? String(res.result.new_route_origin) : null,
+          new_route_destination: res.result.new_route_destination ? String(res.result.new_route_destination) : null,
+          eta_improvement_hours: Number(res.result.eta_improvement_hours ?? 0),
+          old_route_geometry: res.result.old_route_geometry as RerouteResult["old_route_geometry"] ?? null,
+          new_route_geometry: res.result.new_route_geometry as RerouteResult["new_route_geometry"] ?? null,
+          message: `Rerouted: ETA improved by ${Number(res.result.eta_improvement_hours ?? 0).toFixed(1)}h`,
+        }
+        onReroute?.(rerouteResult)
+        showToast("success", `✅ Reroute approved — ETA improved by ${rerouteResult.eta_improvement_hours.toFixed(1)}h. Check the map!`)
+      } else {
+        showToast("success", `✅ Action "${action}" approved and executed.`)
+      }
+
+      refetch()
+    } catch {
+      showToast("error", "Failed to approve action.")
+    } finally {
       setActionLoading(null)
-    }, 500)
+    }
+  }
+
+  const handleReject = async (decisionId: string) => {
+    setActionLoading(decisionId)
+    try {
+      await api.rejectDecision(decisionId)
+      showToast("info", "Action rejected.")
+      refetch()
+    } catch {
+      showToast("error", "Failed to reject action.")
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   if (loading) {
@@ -79,6 +129,20 @@ export default function DecisionsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Toast notification */}
+      {toast && (
+        <div
+          className={cn(
+            "fixed top-4 right-4 z-50 px-4 py-3 rounded-lg border shadow-lg text-sm font-medium animate-in slide-in-from-top-2 fade-in duration-300",
+            toast.type === "success" && "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+            toast.type === "error" && "bg-red-500/15 text-red-400 border-red-500/30",
+            toast.type === "info" && "bg-primary/15 text-primary border-primary/30",
+          )}
+        >
+          {toast.message}
+        </div>
+      )}
+
       {/* Summary */}
       <div className="flex flex-wrap items-center gap-3">
         <Badge variant="outline" className="bg-card px-3 py-1.5 text-sm">
@@ -94,6 +158,19 @@ export default function DecisionsPage() {
         <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 px-3 py-1.5 text-sm">
           Avg Confidence: {formatPercent(metrics.average_confidence)}
         </Badge>
+        {llmStats.total_calls > 0 && (
+          <Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/30 px-3 py-1.5 text-sm">
+            <Sparkles className="h-3 w-3 mr-1" />
+            LLM: {llmStats.total_calls} calls
+            {llmStats.total_skipped > 0 && ` · ${llmStats.total_skipped} cooldown`}
+            {llmStats.total_failures > 0 && ` · ${llmStats.total_failures} failed`}
+          </Badge>
+        )}
+        {llmStats.api_key_set === false && (
+          <Badge variant="outline" className="bg-red-500/10 text-red-400 border-red-500/30 px-3 py-1.5 text-sm">
+            ⚠️ No LLM API Key
+          </Badge>
+        )}
       </div>
 
       {/* Decision Logs */}
@@ -183,7 +260,7 @@ export default function DecisionsPage() {
                                 variant="ghost"
                                 className="h-7 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
                                 disabled={actionLoading === decision.decision_id}
-                                onClick={() => handleApprove(decision.decision_id)}
+                                onClick={() => handleApprove(decision.decision_id, decision.recommended_action)}
                               >
                                 <CheckCircle className="h-3.5 w-3.5" />
                               </Button>
@@ -236,6 +313,72 @@ export default function DecisionsPage() {
                                   <p><span className="text-muted-foreground">SLA Impact:</span> <span className="text-primary">{decision.sla_impact != null ? `${decision.sla_impact} hrs` : "N/A"}</span></p>
                                 </div>
                               </div>
+                              {/* Show reroute result if approved and has geometry */}
+                              {decision.status === "approved" && decision.recommended_action === "reroute_shipment" && decision.action_details && (() => {
+                                try {
+                                  const details = JSON.parse(decision.action_details)
+                                  const result = details.approval_result
+                                  if (result?.success) {
+                                    return (
+                                      <div className="mt-2 p-2 rounded-md bg-cyan-500/10 border border-cyan-500/20">
+                                        <p className="font-semibold text-cyan-400 text-[10px] uppercase tracking-wide mb-1 flex items-center gap-1">
+                                          <Navigation className="h-3 w-3" /> Reroute Result
+                                        </p>
+                                        <div className="space-y-0.5 text-[11px]">
+                                          <p><span className="text-muted-foreground">Old Route:</span> <span className="text-red-400">{result.old_route}</span></p>
+                                          <p><span className="text-muted-foreground">New Route:</span> <span className="text-cyan-400">{result.new_route}</span></p>
+                                          <p><span className="text-muted-foreground">ETA Improved:</span> <span className="text-emerald-400">{Number(result.eta_improvement_hours).toFixed(1)}h</span></p>
+                                          {result.new_route_geometry && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="mt-1.5 h-6 text-[10px] text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                onReroute?.({
+                                                  status: "rerouted",
+                                                  shipment_id: decision.entity_id,
+                                                  old_route: result.old_route,
+                                                  new_route: result.new_route,
+                                                  new_route_origin: result.new_route_origin ?? null,
+                                                  new_route_destination: result.new_route_destination ?? null,
+                                                  eta_improvement_hours: result.eta_improvement_hours,
+                                                  old_route_geometry: result.old_route_geometry ?? null,
+                                                  new_route_geometry: result.new_route_geometry ?? null,
+                                                  message: `Rerouted: ETA improved by ${Number(result.eta_improvement_hours).toFixed(1)}h`,
+                                                })
+                                                showToast("info", "📍 Reroute shown on map — switch to Overview tab.")
+                                              }}
+                                            >
+                                              <Navigation className="h-3 w-3 mr-1" />
+                                              Show on Map
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  }
+                                } catch { /* parse error */ }
+                                return null
+                              })()}
+                              {/* Show alert info for send_alert actions */}
+                              {decision.recommended_action === "send_alert" && decision.action_details && (() => {
+                                try {
+                                  const details = JSON.parse(decision.action_details)
+                                  const msg = details.message || details.approval_result?.alert_message || ""
+                                  if (msg) {
+                                    return (
+                                      <div className="mt-2 p-2 rounded-md bg-amber-500/10 border border-amber-500/20">
+                                        <p className="font-semibold text-amber-400 text-[10px] uppercase tracking-wide mb-1 flex items-center gap-1">
+                                          <Bell className="h-3 w-3" /> Alert Sent
+                                        </p>
+                                        <p className="text-[11px] text-foreground">{msg}</p>
+                                      </div>
+                                    )
+                                  }
+                                } catch { /* parse error */ }
+                                return null
+                              })()}
                             </div>
                           </div>
                         </TableCell>

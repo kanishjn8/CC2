@@ -4,6 +4,7 @@ and approval workflow to the dashboard.
 """
 
 import json
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,8 +24,10 @@ from app.schemas import (
 from app.ai_agent import agent_loop
 from app.ai_agent.learning import get_metrics
 from app.ai_agent.actions import execute_action
+from app.ai_agent.llm_client import get_llm_stats
 
 router = APIRouter(prefix="/agent", tags=["AI Agent"])
+log = logging.getLogger("cc2.agent_api")
 
 
 # ── Decision log ─────────────────────────────────────────────────────────────
@@ -128,6 +131,10 @@ def approve_decision(
         existing["approval_result"] = result
         dec.action_details = json.dumps(existing)
         db.commit()
+
+        log.info("✅ Approved decision %s — action '%s' executed for %s",
+                 decision_id, dec.recommended_action, dec.entity_id)
+
         return ApprovalResponse(
             status="approved",
             message=f"Action '{dec.recommended_action}' approved and executed.",
@@ -138,6 +145,10 @@ def approve_decision(
         dec.status = "rejected"
         dec.outcome = "rejected"
         db.commit()
+
+        log.info("❌ Rejected decision %s — action '%s' for %s",
+                 decision_id, dec.recommended_action, dec.entity_id)
+
         return ApprovalResponse(
             status="rejected",
             message=f"Action '{dec.recommended_action}' rejected by operator.",
@@ -162,3 +173,11 @@ def agent_summary():
 def feature_importance():
     """Return the feature importance weights from the trained delay risk model."""
     return agent_loop.delay_model.get_feature_importance()
+
+
+# ── LLM usage statistics ─────────────────────────────────────────────────────
+
+@router.get("/llm-stats")
+def llm_stats():
+    """Return LLM call statistics for monitoring."""
+    return get_llm_stats()

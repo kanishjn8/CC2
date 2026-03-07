@@ -5,11 +5,14 @@ Observe → Reason → Decide → Act → Learn cycle.
 Runs in a background thread alongside the simulation engine.
 """
 
+import logging
 import threading
 import time
 import traceback
 
 from sqlalchemy.orm import Session
+
+log = logging.getLogger("cc2.agent")
 
 from app.ai_agent.observer import (
     get_active_shipments,
@@ -109,7 +112,7 @@ class AgentLoop:
                 self._cycle_count += 1
             except Exception:
                 db.rollback()
-                print(f"[agent] cycle error:\n{traceback.format_exc()}")
+                log.error("Agent cycle error:\n%s", traceback.format_exc())
             finally:
                 db.close()
             time.sleep(self.tick_interval)
@@ -338,7 +341,7 @@ class AgentLoop:
             "Do NOT use JSON — respond in plain English."
         )
 
-        result = call_llm(prompt, system_instruction="You are a logistics operations AI narrator.")
+        result = call_llm(prompt, system_instruction="You are a logistics operations AI narrator.", caller="cycle_summary")
         if result:
             return result
 

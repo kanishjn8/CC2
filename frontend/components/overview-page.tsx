@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Package,
   AlertTriangle,
@@ -11,6 +12,8 @@ import {
   Truck,
   Warehouse,
   Radio,
+  X,
+  Navigation,
 } from "lucide-react"
 import {
   BarChart,
@@ -31,6 +34,7 @@ import dynamic from "next/dynamic"
 import { motion } from "framer-motion"
 import { AnimatedCounter } from "@/components/animated-counter"
 import { LiveActivityFeed } from "@/components/live-activity-feed"
+import { useRerouteContext } from "@/hooks/use-reroute-context"
 
 const ShipmentMap = dynamic(() => import("@/components/shipment-map"), {
   ssr: false,
@@ -47,6 +51,7 @@ export default function OverviewPage() {
   const { data: carriers } = useCarriers()
   const { data: metrics } = useAgentMetrics()
   const { data: simStatus } = useSimulationStatus()
+  const { rerouteData, clearReroute } = useRerouteContext()
 
   // Compute overview stats from real data
   const overview = useMemo(() => {
@@ -205,14 +210,50 @@ export default function OverviewPage() {
             <CardTitle className="text-sm font-semibold text-muted-foreground">
               Live Shipment Network
             </CardTitle>
-            <Badge variant="outline" className="text-[10px] gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {shipments.filter((s) => s.status === "in_transit").length} active routes
-            </Badge>
+            <div className="flex items-center gap-2">
+              {rerouteData && (
+                <Badge className="bg-cyan-500/15 text-cyan-400 border-cyan-500/30 gap-1">
+                  <Navigation className="h-3 w-3" />
+                  Reroute Active
+                  <button onClick={clearReroute} className="ml-1 hover:text-cyan-200">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-[10px] gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                {shipments.filter((s) => s.status === "in_transit").length} active routes
+              </Badge>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0 pb-4">
-          <ShipmentMap shipments={shipments} />
+          {/* Reroute info banner */}
+          {rerouteData && (
+            <div className="mx-4 mb-3 p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-3 text-xs">
+                <Navigation className="h-4 w-4 text-cyan-400 shrink-0" />
+                <div>
+                  <span className="text-cyan-400 font-semibold">Reroute Visualization Active</span>
+                  <span className="text-muted-foreground ml-2">
+                    {rerouteData.old_route} → {rerouteData.new_route}
+                  </span>
+                  <span className="text-emerald-400 ml-2">
+                    ETA improved by {rerouteData.eta_improvement_hours.toFixed(1)}h
+                  </span>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-muted-foreground hover:text-foreground"
+                onClick={clearReroute}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
+          <ShipmentMap shipments={shipments} rerouteData={rerouteData} />
         </CardContent>
       </Card>
 

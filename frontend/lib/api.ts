@@ -12,6 +12,9 @@ import type {
   ApprovalResponse,
   AgentSummary,
   AgentAnalyzeResponse,
+  RerouteResult,
+  SendAlertResult,
+  LlmStats,
 } from "./types";
 
 // ============================================================
@@ -140,6 +143,10 @@ class ApiClient {
     return this.request<AgentSummary>("/api/agent/summary");
   }
 
+  getLlmStats(): Promise<LlmStats> {
+    return this.request<LlmStats>("/api/agent/llm-stats");
+  }
+
   // ---- Simulation Controls ----
   getSimulationStatus(): Promise<SimulationStatus> {
     return this.request<SimulationStatus>("/api/simulate/status");
@@ -175,6 +182,29 @@ class ApiClient {
 
   createShipment(): Promise<SimulationResponse> {
     return this.request<SimulationResponse>("/api/simulate/create-shipment", { method: "POST" });
+  }
+
+  // ---- Operational Actions ----
+  sendAlert(shipmentId: string, opts?: { risk_score?: number; reason?: string; message?: string }): Promise<SendAlertResult> {
+    return this.request<SendAlertResult>("/api/actions/send-alert", {
+      method: "POST",
+      body: JSON.stringify({
+        shipment_id: shipmentId,
+        risk_score: opts?.risk_score ?? 0,
+        reason: opts?.reason ?? "",
+        message: opts?.message ?? "",
+      }),
+    });
+  }
+
+  rerouteShipment(shipmentId: string, reason?: string): Promise<RerouteResult> {
+    return this.request<RerouteResult>("/api/actions/reroute", {
+      method: "POST",
+      body: JSON.stringify({
+        shipment_id: shipmentId,
+        reason: reason ?? "",
+      }),
+    });
   }
 }
 

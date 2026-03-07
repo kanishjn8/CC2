@@ -9,6 +9,7 @@ import { AppHeader } from "@/components/app-header"
 import { BackgroundWrapper } from "@/components/background-wrapper"
 import { CommandPalette } from "@/components/command-palette"
 import { AlertNotifications } from "@/components/alert-notifications"
+import { RerouteProvider } from "@/hooks/use-reroute-context"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -27,15 +28,17 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <BackgroundWrapper />
-          <AppSidebar />
-          <div className="ml-[260px] min-h-screen flex flex-col">
-            <AppHeader />
-            <main className="flex-1 p-6">{children}</main>
-          </div>
-          <CommandPalette />
-          <AlertNotifications />
-          <Toaster />
+          <RerouteProvider>
+            <BackgroundWrapper />
+            <AppSidebar />
+            <div className="ml-[260px] min-h-screen flex flex-col">
+              <AppHeader />
+              <main className="flex-1 p-6">{children}</main>
+            </div>
+            <CommandPalette />
+            <AlertNotifications />
+            <Toaster />
+          </RerouteProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -10,7 +10,7 @@ import {
   ZoomableGroup,
 } from "react-simple-maps"
 import { geoCentroid } from "d3-geo"
-import type { Shipment } from "@/lib/types"
+import type { Shipment, RerouteResult } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 // ── Data Sources ──────────────────────────────────────────────────────────────
@@ -257,9 +257,10 @@ function isNearIndia(coords: [number, number]): boolean {
 
 interface ShipmentMapProps {
   shipments: Shipment[]
+  rerouteData?: RerouteResult | null
 }
 
-function ShipmentMapInner({ shipments }: ShipmentMapProps) {
+function ShipmentMapInner({ shipments, rerouteData }: ShipmentMapProps) {
   const [hoveredShipment, setHoveredShipment] = useState<Shipment | null>(null)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
   const [position, setPosition] = useState<{ coordinates: [number, number]; zoom: number }>({
@@ -575,6 +576,67 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
             </g>
           ))}
 
+          {/* Layer 6b: Reroute visualization — old route (faded dashed) + new route (highlighted) */}
+          {rerouteData?.old_route_geometry?.coordinates && rerouteData.old_route_geometry.coordinates.length >= 2 && (
+            rerouteData.old_route_geometry.coordinates.slice(0, -1).map((coord, i) => {
+              const next = rerouteData.old_route_geometry!.coordinates[i + 1]
+              return (
+                <Line
+                  key={`old-route-${i}`}
+                  from={coord as [number, number]}
+                  to={next as [number, number]}
+                  stroke="#ef4444"
+                  strokeWidth={2.5 * inv}
+                  strokeLinecap="round"
+                  strokeDasharray="6 4"
+                  style={{ opacity: 0.4 }}
+                />
+              )
+            })
+          )}
+          {rerouteData?.new_route_geometry?.coordinates && rerouteData.new_route_geometry.coordinates.length >= 2 && (
+            rerouteData.new_route_geometry.coordinates.slice(0, -1).map((coord, i) => {
+              const next = rerouteData.new_route_geometry!.coordinates[i + 1]
+              return (
+                <Line
+                  key={`new-route-${i}`}
+                  from={coord as [number, number]}
+                  to={next as [number, number]}
+                  stroke="#22d3ee"
+                  strokeWidth={3 * inv}
+                  strokeLinecap="round"
+                  style={{ opacity: 0.9 }}
+                  className="animate-dash"
+                />
+              )
+            })
+          )}
+          {/* Reroute endpoint markers */}
+          {rerouteData?.new_route_geometry?.coordinates && rerouteData.new_route_geometry.coordinates.length >= 2 && (
+            <>
+              <Marker coordinates={rerouteData.new_route_geometry.coordinates[0] as [number, number]}>
+                <circle r={4 * inv} fill="#22d3ee" stroke="#0e7490" strokeWidth={1.5 * inv} />
+                <text
+                  textAnchor="middle"
+                  y={-(6 * inv)}
+                  style={{ fontSize: `${5 * inv}px`, fill: "#22d3ee", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
+                >
+                  {rerouteData.new_route_origin || "New Origin"}
+                </text>
+              </Marker>
+              <Marker coordinates={rerouteData.new_route_geometry.coordinates[rerouteData.new_route_geometry.coordinates.length - 1] as [number, number]}>
+                <circle r={4 * inv} fill="#22d3ee" stroke="#0e7490" strokeWidth={1.5 * inv} />
+                <text
+                  textAnchor="middle"
+                  y={-(6 * inv)}
+                  style={{ fontSize: `${5 * inv}px`, fill: "#22d3ee", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
+                >
+                  {rerouteData.new_route_destination || "New Dest"}
+                </text>
+              </Marker>
+            </>
+          )}
+
           {/* Layer 7: Shipment city markers (always visible) */}
           {activeCities.map((city) => {
             const hasIssue = shipments.some(
@@ -678,6 +740,11 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" /> Issue Detected
         </span>
+        {rerouteData && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-5 rounded-full bg-cyan-400" /> Rerouted
+          </span>
+        )}
       </div>
     </div>
   )

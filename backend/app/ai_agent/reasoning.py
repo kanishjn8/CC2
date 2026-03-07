@@ -40,7 +40,7 @@ def _llm_explain_delay_risk(
         "You are an expert logistics risk analyst. Always respond with valid JSON only. "
         "No markdown, no code fences, just raw JSON."
     )
-    result = call_llm_json(prompt, system_instruction=system)
+    result = call_llm_json(prompt, system_instruction=system, caller="reasoning:delay_risk")
     if result and "problem" in result and "root_cause" in result:
         return {
             "problem": str(result["problem"]),
@@ -70,7 +70,7 @@ def _llm_explain_bottleneck(warehouse: dict) -> dict | None:
         "You are an expert logistics risk analyst. Always respond with valid JSON only. "
         "No markdown, no code fences, just raw JSON."
     )
-    result = call_llm_json(prompt, system_instruction=system)
+    result = call_llm_json(prompt, system_instruction=system, caller="reasoning:bottleneck")
     if result and "problem" in result and "root_cause" in result:
         evidence = {
             "current_load": warehouse["current_load"],
@@ -107,7 +107,7 @@ def _llm_explain_carrier_degradation(carrier: dict) -> dict | None:
         "You are an expert logistics risk analyst. Always respond with valid JSON only. "
         "No markdown, no code fences, just raw JSON."
     )
-    result = call_llm_json(prompt, system_instruction=system)
+    result = call_llm_json(prompt, system_instruction=system, caller="reasoning:carrier_degradation")
     if result and "problem" in result and "root_cause" in result:
         evidence = {
             "reliability_score": carrier["reliability_score"],

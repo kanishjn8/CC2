@@ -19,7 +19,7 @@ EVENT_RETENTION_HOURS: int = int(os.getenv("EVENT_RETENTION_HOURS", "72"))
 SEED_WAREHOUSES: int = int(os.getenv("SEED_WAREHOUSES", "10"))
 SEED_CARRIERS: int = int(os.getenv("SEED_CARRIERS", "12"))
 SEED_ROUTES: int = int(os.getenv("SEED_ROUTES", "30"))
-SEED_SHIPMENTS: int = int(os.getenv("SEED_SHIPMENTS", "40"))
+SEED_SHIPMENTS: int = int(os.getenv("SEED_SHIPMENTS", "60"))
 
 # Agent defaults
 AGENT_TICK_INTERVAL: float = float(os.getenv("AGENT_TICK_INTERVAL", "60.0"))  # 1 minute between cycles
@@ -28,9 +28,18 @@ BOTTLENECK_THRESHOLD: float = float(os.getenv("BOTTLENECK_THRESHOLD", "0.85"))
 CARRIER_RELIABILITY_THRESHOLD: float = float(os.getenv("CARRIER_RELIABILITY_THRESHOLD", "0.5"))
 
 # LLM rate-limiting — minimum seconds between any two LLM API calls
-LLM_CALL_COOLDOWN: float = float(os.getenv("LLM_CALL_COOLDOWN", "300.0"))  # 5 minutes default
+LLM_CALL_COOLDOWN: float = float(os.getenv("LLM_CALL_COOLDOWN", "30.0"))  # 30 seconds default
 
 # Gemini LLM
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GEMINI_PRIMARY_MODEL: str = os.getenv("GEMINI_PRIMARY_MODEL", "models/gemini-3-flash-preview")
 GEMINI_FALLBACK_MODEL: str = os.getenv("GEMINI_FALLBACK_MODEL", "models/gemini-3-flash-lite-preview")
+
+# SMTP Email (for alert actions)
+SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER: str = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+ALERT_EMAIL_FROM: str = os.getenv("ALERT_EMAIL_FROM", "alerts@routesense.ai")
+ALERT_EMAIL_TO: str = os.getenv("ALERT_EMAIL_TO", "")  # comma-separated list

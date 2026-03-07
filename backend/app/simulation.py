@@ -240,7 +240,7 @@ class LogisticsSimulation:
         """Roll for a random disruption each tick."""
         roll = random.random()
 
-        if roll < 0.08:
+        if roll < 0.12:
             # ETA drift on a random in-transit shipment
             ship = (
                 db.query(Shipment)
@@ -260,7 +260,7 @@ class LogisticsSimulation:
                     "new_eta": ship.eta.isoformat(),
                 })
 
-        elif roll < 0.14:
+        elif roll < 0.20:
             # Pickup failure
             carrier = db.query(CarrierPerformance).order_by(CarrierPerformance.pickup_success_rate).first()
             if carrier:
@@ -271,7 +271,7 @@ class LogisticsSimulation:
                     "pickup_success_rate": carrier.pickup_success_rate,
                 })
 
-        elif roll < 0.18:
+        elif roll < 0.26:
             # Carrier reliability degradation
             carrier = db.query(CarrierPerformance).order_by(CarrierPerformance.reliability_score).first()
             if carrier:

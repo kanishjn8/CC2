@@ -20,6 +20,7 @@ from app.simulation import simulation
 from app.routers import data, simulate
 from app.routers.geo import router as geo_router
 from app.routers.agent import router as agent_router
+from app.routers.actions import router as actions_router
 from app.config import SEED_WAREHOUSES, SEED_CARRIERS, SEED_ROUTES, SEED_SHIPMENTS
 from app.ai_agent import agent_loop
 
@@ -126,6 +127,7 @@ app.include_router(data.router, prefix="/api")
 app.include_router(simulate.router, prefix="/api")
 app.include_router(geo_router, prefix="/api")
 app.include_router(agent_router, prefix="/api")
+app.include_router(actions_router, prefix="/api")
 
 
 @app.get("/", tags=["Health"])

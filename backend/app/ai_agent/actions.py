@@ -5,9 +5,15 @@ Each function mutates the database to reflect the intervention.
 The caller is responsible for committing the transaction.
 """
 
+import json
+import logging
 import random
+import smtplib
 from datetime import timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
+from geoalchemy2.shape import to_shape
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -18,6 +24,20 @@ from app.models import (
     TrafficLevel,
     WarehouseState,
 )
+from app import config as _cfg
+
+log = logging.getLogger("cc2.actions")
+
+
+def _linestring_geojson(geom_col) -> dict | None:
+    """Convert a WKB LINESTRING to a GeoJSON dict."""
+    if geom_col is None:
+        return None
+    try:
+        shape = to_shape(geom_col)
+        return {"type": "LineString", "coordinates": [list(c) for c in shape.coords]}
+    except Exception:
+        return None
 
 
 def reroute_shipment(db: Session, shipment_id: str) -> dict:
@@ -25,6 +45,9 @@ def reroute_shipment(db: Session, shipment_id: str) -> dict:
     shipment = db.query(Shipment).filter_by(shipment_id=shipment_id).first()
     if not shipment:
         return {"success": False, "reason": "Shipment not found"}
+
+    # Capture old route geometry before switching
+    old_route = db.query(Route).filter_by(route_id=shipment.route_id).first() if shipment.route_id else None
 
     best_route = (
         db.query(Route)
@@ -36,17 +59,26 @@ def reroute_shipment(db: Session, shipment_id: str) -> dict:
     if not best_route:
         return {"success": False, "reason": "No better route available"}
 
-    old_route = shipment.route_id
+    old_route_id = shipment.route_id
     shipment.route_id = best_route.route_id
     improvement = timedelta(hours=random.uniform(1, 4))
     shipment.eta = shipment.eta - improvement
 
-    return {
+    result = {
         "success": True,
-        "old_route": old_route,
+        "old_route": old_route_id,
         "new_route": best_route.route_id,
+        "new_route_origin": best_route.origin,
+        "new_route_destination": best_route.destination,
         "eta_improvement_hours": round(improvement.total_seconds() / 3600, 2),
+        "old_route_geometry": _linestring_geojson(old_route.path) if old_route else None,
+        "new_route_geometry": _linestring_geojson(best_route.path),
     }
+
+    log.info("🔀 Rerouted %s: %s → %s (ETA improved by %.1fh)",
+             shipment_id, old_route_id, best_route.route_id,
+             improvement.total_seconds() / 3600)
+    return result
 
 
 def prioritize_loading(db: Session, shipment_id: str) -> dict:
@@ -100,12 +132,67 @@ def switch_carrier(db: Session, shipment_id: str) -> dict:
     }
 
 
+def _send_email(subject: str, body_html: str, body_text: str) -> bool:
+    """Send an email via SMTP. Returns True on success, False on failure."""
+    if not _cfg.SMTP_HOST or not _cfg.ALERT_EMAIL_TO:
+        log.debug("📧 SMTP not configured — skipping email send")
+        return False
+
+    recipients = [e.strip() for e in _cfg.ALERT_EMAIL_TO.split(",") if e.strip()]
+    if not recipients:
+        return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = _cfg.ALERT_EMAIL_FROM
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(body_text, "plain"))
+    msg.attach(MIMEText(body_html, "html"))
+
+    try:
+        if _cfg.SMTP_USE_TLS:
+            server = smtplib.SMTP(_cfg.SMTP_HOST, _cfg.SMTP_PORT, timeout=10)
+            server.starttls()
+        else:
+            server = smtplib.SMTP(_cfg.SMTP_HOST, _cfg.SMTP_PORT, timeout=10)
+
+        if _cfg.SMTP_USER and _cfg.SMTP_PASSWORD:
+            server.login(_cfg.SMTP_USER, _cfg.SMTP_PASSWORD)
+
+        server.sendmail(_cfg.ALERT_EMAIL_FROM, recipients, msg.as_string())
+        server.quit()
+        log.info("📧 Email sent to %s — subject: %s", recipients, subject)
+        return True
+    except Exception as exc:
+        log.error("📧 Failed to send email: %s", exc)
+        return False
+
+
 def send_alert(db: Session, entity_id: str, message: str) -> dict:
-    """Record an operator alert (no state mutation)."""
+    """Record an operator alert and optionally send via SMTP email."""
+    alert_message = message or f"Risk detected for entity {entity_id}"
+    log.info("🚨 Alert sent for %s: %s", entity_id, alert_message)
+
+    # Attempt SMTP email
+    subject = f"[RouteSense Alert] Risk detected — {entity_id}"
+    body_text = f"Entity: {entity_id}\n\n{alert_message}"
+    body_html = (
+        f"<div style='font-family:sans-serif;max-width:600px'>"
+        f"<h2 style='color:#e74c3c'>⚠️ RouteSense Risk Alert</h2>"
+        f"<p><strong>Entity:</strong> {entity_id}</p>"
+        f"<p>{alert_message}</p>"
+        f"<hr style='border:none;border-top:1px solid #eee'>"
+        f"<p style='color:#888;font-size:12px'>Sent by RouteSense AI Control Tower</p>"
+        f"</div>"
+    )
+    email_sent = _send_email(subject, body_html, body_text)
+
     return {
         "success": True,
         "entity_id": entity_id,
-        "alert_message": message,
+        "alert_type": "risk_alert",
+        "alert_message": alert_message,
+        "email_sent": email_sent,
     }
 
 

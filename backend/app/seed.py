@@ -136,21 +136,40 @@ def seed_warehouses(db: Session, count: int = 10) -> list[WarehouseState]:
     locations = locations[:count]
 
     log.info("Seeding %d warehouses across global hubs…", count)
-    for loc in locations:
+    for i, loc in enumerate(locations):
         cap = random.randint(300, 1500)
-        load = random.randint(0, int(cap * 0.65))
+
+        # Diversity: some warehouses are critically congested, some near-empty
+        if i < 2:
+            # Near-full / critically congested
+            load = random.randint(int(cap * 0.88), cap)
+            queue = random.randint(15, 40)
+        elif i < 4:
+            # Moderately congested
+            load = random.randint(int(cap * 0.65), int(cap * 0.85))
+            queue = random.randint(8, 20)
+        elif i < count - 2:
+            # Normal
+            load = random.randint(int(cap * 0.20), int(cap * 0.60))
+            queue = random.randint(0, 10)
+        else:
+            # Nearly empty
+            load = random.randint(0, int(cap * 0.15))
+            queue = random.randint(0, 2)
+
         wh = WarehouseState(
             warehouse_id=_uid("WH"),
             location=loc,
             capacity=cap,
             current_load=load,
-            queue_length=random.randint(0, 20),
+            queue_length=queue,
             congestion_score=round(load / cap, 3),
             geom=_point(loc),
         )
         db.add(wh)
         warehouses.append(wh)
-        log.debug("  Warehouse %s @ %s  cap=%d load=%d", wh.warehouse_id, loc, cap, load)
+        log.debug("  Warehouse %s @ %s  cap=%d load=%d cong=%.2f queue=%d",
+                  wh.warehouse_id, loc, cap, load, wh.congestion_score, queue)
     db.flush()
     log.info("  ✓ %d warehouses created", len(warehouses))
     return warehouses
@@ -159,21 +178,51 @@ def seed_warehouses(db: Session, count: int = 10) -> list[WarehouseState]:
 def seed_carriers(db: Session, count: int = 12) -> list[CarrierPerformance]:
     carriers = []
     names = CARRIER_NAMES[:count]
-    log.info("Seeding %d carriers…", count)
-    for name in names:
-        rel = round(random.uniform(0.6, 1.0), 3)
+    log.info("Seeding %d carriers (with diverse reliability profiles)…", count)
+    for i, name in enumerate(names):
+        # Diversity: some carriers are very unreliable, some excellent
+        if i < 2:
+            # Very unreliable carriers
+            rel = round(random.uniform(0.25, 0.45), 3)
+            delay_prob = round(random.uniform(0.40, 0.65), 3)
+            pickup = round(random.uniform(0.55, 0.75), 3)
+            total_sh = random.randint(40, 100)
+            total_dl = int(total_sh * random.uniform(0.30, 0.50))
+        elif i < 4:
+            # Below average
+            rel = round(random.uniform(0.45, 0.60), 3)
+            delay_prob = round(random.uniform(0.25, 0.40), 3)
+            pickup = round(random.uniform(0.70, 0.85), 3)
+            total_sh = random.randint(30, 80)
+            total_dl = int(total_sh * random.uniform(0.20, 0.35))
+        elif i < count - 2:
+            # Average / good
+            rel = round(random.uniform(0.70, 0.90), 3)
+            delay_prob = round(random.uniform(0.05, 0.20), 3)
+            pickup = round(random.uniform(0.85, 0.96), 3)
+            total_sh = random.randint(20, 60)
+            total_dl = int(total_sh * random.uniform(0.05, 0.15))
+        else:
+            # Excellent
+            rel = round(random.uniform(0.92, 0.99), 3)
+            delay_prob = round(random.uniform(0.01, 0.05), 3)
+            pickup = round(random.uniform(0.96, 1.00), 3)
+            total_sh = random.randint(50, 120)
+            total_dl = int(total_sh * random.uniform(0.01, 0.05))
+
         carrier = CarrierPerformance(
             carrier_id=_uid("CR"),
             name=name,
             reliability_score=rel,
-            delay_probability=round(1.0 - rel + random.uniform(0, 0.1), 3),
-            pickup_success_rate=round(random.uniform(0.80, 0.99), 3),
-            total_shipments=0,
-            total_delays=0,
+            delay_probability=delay_prob,
+            pickup_success_rate=pickup,
+            total_shipments=total_sh,
+            total_delays=total_dl,
         )
         db.add(carrier)
         carriers.append(carrier)
-        log.debug("  Carrier %s (%s)  reliability=%.3f", carrier.carrier_id, name, rel)
+        log.debug("  Carrier %s (%s)  rel=%.3f delay_p=%.3f pickup=%.3f ships=%d delays=%d",
+                  carrier.carrier_id, name, rel, delay_prob, pickup, total_sh, total_dl)
     db.flush()
     log.info("  ✓ %d carriers created", len(carriers))
     return carriers
@@ -181,29 +230,50 @@ def seed_carriers(db: Session, count: int = 12) -> list[CarrierPerformance]:
 
 def seed_routes(db: Session, count: int = 30) -> list[Route]:
     routes = []
-    log.info("Seeding %d global routes…", count)
-    for _ in range(count):
+    log.info("Seeding %d global routes (with diverse traffic & weather)…", count)
+    import math
+
+    for i in range(count):
         o, d = random.sample(CITIES, 2)
         o_lon, o_lat = CITY_COORDS[o]
         d_lon, d_lat = CITY_COORDS[d]
-        # Haversine-approximate distance (km) for realistic values
-        import math
+        # Haversine-approximate distance (km)
         dlat = math.radians(d_lat - o_lat)
         dlon = math.radians(d_lon - o_lon)
         a = math.sin(dlat/2)**2 + math.cos(math.radians(o_lat)) * math.cos(math.radians(d_lat)) * math.sin(dlon/2)**2
         dist_km = round(6371 * 2 * math.asin(math.sqrt(a)), 1)
+
+        # Diversity: some routes have severe traffic + bad weather
+        if i < 3:
+            # Nightmare routes — severe traffic, terrible weather
+            traffic = TrafficLevel.severe
+            weather = round(random.uniform(1.5, 2.0), 2)
+        elif i < 6:
+            # Bad routes — high traffic, moderate-bad weather
+            traffic = TrafficLevel.high
+            weather = round(random.uniform(1.3, 1.6), 2)
+        elif i < count - 4:
+            # Normal routes
+            traffic = random.choice(list(TrafficLevel))
+            weather = round(random.uniform(0.8, 1.3), 2)
+        else:
+            # Easy routes — low traffic, good weather
+            traffic = TrafficLevel.low
+            weather = round(random.uniform(0.8, 1.0), 2)
+
         route = Route(
             route_id=_uid("RT"),
             origin=o,
             destination=d,
             distance=dist_km,
-            traffic_level=random.choice(list(TrafficLevel)),
-            weather_factor=round(random.uniform(0.8, 1.5), 2),
+            traffic_level=traffic,
+            weather_factor=weather,
             path=_linestring(o, d),
         )
         db.add(route)
         routes.append(route)
-        log.debug("  Route %s: %s → %s  %.0f km", route.route_id, o, d, dist_km)
+        log.debug("  Route %s: %s → %s  %.0f km  traffic=%s weather=%.2f",
+                  route.route_id, o, d, dist_km, traffic.value, weather)
     db.flush()
     log.info("  ✓ %d routes created", len(routes))
     return routes
@@ -217,15 +287,79 @@ def seed_shipments(
 ) -> list[Shipment]:
     shipments = []
     now = datetime.utcnow()
-    log.info("Seeding %d shipments across global routes…", count)
-    for _ in range(count):
-        route = random.choice(routes)
-        carrier = random.choice(carriers)
-        eta_hours = random.uniform(6, 120)   # up to 5 days for long-haul
-        sla_buffer = random.uniform(2, 24)
-        status = random.choice(
-            [ShipmentStatus.created, ShipmentStatus.dispatched, ShipmentStatus.in_transit]
-        )
+    log.info("Seeding %d shipments (all statuses, diverse SLA scenarios)…", count)
+
+    # Ensure unreliable carriers get assigned more shipments to trigger agent
+    bad_carriers = [c for c in carriers if c.reliability_score < 0.5]
+    ok_carriers = [c for c in carriers if c.reliability_score >= 0.5]
+
+    # Ensure some routes are bad to trigger risk
+    bad_routes = [r for r in routes if r.traffic_level in (TrafficLevel.high, TrafficLevel.severe)]
+    all_routes = routes
+
+    for i in range(count):
+        # ── Status distribution ──────────────────────────────────────
+        # 25% created, 20% dispatched, 25% in_transit, 8% delayed,
+        # 5% failed, 7% at_warehouse, 5% out_for_delivery, 5% delivered
+        r = random.random()
+        if r < 0.25:
+            status = ShipmentStatus.created
+        elif r < 0.45:
+            status = ShipmentStatus.dispatched
+        elif r < 0.70:
+            status = ShipmentStatus.in_transit
+        elif r < 0.78:
+            status = ShipmentStatus.delayed
+        elif r < 0.83:
+            status = ShipmentStatus.failed
+        elif r < 0.90:
+            status = ShipmentStatus.at_warehouse
+        elif r < 0.95:
+            status = ShipmentStatus.out_for_delivery
+        else:
+            status = ShipmentStatus.delivered
+
+        # ── Carrier selection — bias some shipments to bad carriers ────
+        if i < 6 and bad_carriers:
+            carrier = random.choice(bad_carriers)
+        else:
+            carrier = random.choice(carriers)
+
+        # ── Route selection — bias some shipments to bad routes ────
+        if i < 8 and bad_routes:
+            route = random.choice(bad_routes)
+        else:
+            route = random.choice(all_routes)
+
+        # ── ETA / SLA diversity ──────────────────────────────────────
+        if i < 5:
+            # SLA already breached — ETA past SLA deadline
+            eta_hours = random.uniform(24, 96)
+            sla_buffer = random.uniform(-12, -2)  # negative = SLA in the past relative to ETA
+        elif i < 10:
+            # Very tight SLA — under 2 hours buffer
+            eta_hours = random.uniform(6, 48)
+            sla_buffer = random.uniform(0.5, 2.0)
+        elif i < 15:
+            # Moderate SLA pressure
+            eta_hours = random.uniform(8, 72)
+            sla_buffer = random.uniform(2, 6)
+        else:
+            # Normal / comfortable
+            eta_hours = random.uniform(6, 120)
+            sla_buffer = random.uniform(4, 24)
+
+        # For delayed / failed shipments, set ETA in the past or very soon
+        if status == ShipmentStatus.delayed:
+            eta_hours = random.uniform(-6, 3)  # already late or almost late
+            sla_buffer = random.uniform(-8, -1)
+        elif status == ShipmentStatus.failed:
+            eta_hours = random.uniform(-24, -6)  # definitely past
+            sla_buffer = random.uniform(-24, -6)
+        elif status == ShipmentStatus.delivered:
+            eta_hours = random.uniform(-48, -2)  # completed in the past
+            sla_buffer = random.uniform(1, 12)
+
         ship = Shipment(
             shipment_id=_uid("SH"),
             origin=route.origin,
@@ -242,10 +376,12 @@ def seed_shipments(
         db.add(ship)
         shipments.append(ship)
         carrier.total_shipments += 1
+        if status in (ShipmentStatus.delayed, ShipmentStatus.failed):
+            carrier.total_delays += 1
         log.debug(
-            "  Shipment %s: %s → %s  carrier=%s  status=%s  eta=+%.1fh",
+            "  Shipment %s: %s → %s  carrier=%s  status=%s  eta=+%.1fh  sla_buf=%.1fh",
             ship.shipment_id, route.origin, route.destination,
-            carrier.name, status.value, eta_hours,
+            carrier.name, status.value, eta_hours, sla_buffer,
         )
     db.flush()
     log.info("  ✓ %d shipments created", len(shipments))
