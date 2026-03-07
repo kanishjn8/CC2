@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 0%; /* True black */
+    --foreground: 210 40% 98%; /* White */
+
+    --card: 0 0% 3.9%; /* Very dark gray */
+    --card-foreground: 210 40% 98%;
+
+    --popover: 0 0% 3.9%; /* Very dark gray */
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 199 89% 48%; /* Cyan Blue */
+    --primary-foreground: 210 40% 98%; /* White */
+
+    --secondary: 240 4% 16%; /* Dark gray */
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 240 4% 16%; /* Dark gray */
+    --muted-foreground: 215.4 16.3% 56.9%; /* Gray */
+
+    --accent: 240 4% 16%; /* Dark gray */
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 72% 51%; /* Red */
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 240 3.7% 15.9%; /* Darker gray */
+    --input: 240 3.7% 15.9%; /* Darker gray */
+    --ring: 199 89% 48%; /* Cyan Blue */
+
+    --radius: 0.5rem;
+
+    /* Chart Colors - Complementary to Cyan Blue */
+    --chart-1: 199 89% 48%; /* Primary Cyan Blue */
+    --chart-2: 142.1 76.2% 36.3%; /* Green */
+    --chart-3: 217.2 91.2% 59.8%; /* Blue */
+    --chart-4: 262.1 83.3% 57.8%; /* Purple */
+    --chart-5: 346.8 77.2% 49.8%; /* Red */
+    --chart-6: 180 62.9% 50.6%; /* Cyan */
+    --chart-7: 60 48% 50%; /* Yellow */
+    --chart-8: 188 85% 35%; /* Darker Cyan */
+    --chart-9: 280 50% 60%; /* Pinkish Purple */
+    --chart-10: 100 50% 40%; /* Dark Green */
+  }
+
+  .dark {
+    --background: 0 0% 0%;
+    --foreground: 210 40% 98%;
+
+    --card: 0 0% 3.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 240 4% 16%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+
+    --accent: 240 4% 16%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 199 89% 48%;
+
+    /* Chart Colors for Dark Mode */
+    --chart-1: 199 89% 48%;
+    --chart-2: 142.1 76.2% 36.3%;
+    --chart-3: 217.2 91.2% 59.8%;
+    --chart-4: 262.1 83.3% 57.8%;
+    --chart-5: 346.8 77.2% 49.8%;
+    --chart-6: 180 62.9% 50.6%;
+    --chart-7: 60 48% 50%;
+    --chart-8: 188 85% 35%;
+    --chart-9: 280 50% 60%;
+    --chart-10: 100 50% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 6px hsl(var(--primary) / 0.5);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.8);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Force Recharts charts to have transparent backgrounds */
+.recharts-wrapper,
+.recharts-surface {
+  background: transparent !important;
+}
+.recharts-cartesian-grid-bg {
+  fill: transparent !important;
+}
+
+/* Animated dash for map routes */
+@keyframes dash-move {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -20;
+  }
+}
+
+.animate-dash {
+  animation: dash-move 1.5s linear infinite;
+}
+
+/* Thin scrollbar for activity feed */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(240, 3.7%, 15.9%);
+  border-radius: 2px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: hsl(240, 4%, 25%);
+}
