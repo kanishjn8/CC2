@@ -1,7 +1,8 @@
 services:
   # ── PostgreSQL ────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16
+    image: postgis/postgis:16-3.4
+    platform: linux/amd64   # runs under Rosetta 2 on Apple Silicon
     container_name: cc2-postgres
     restart: always
     environment:
@@ -12,9 +13,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # schema.sql is executed automatically on first container start
-      # (only when the data volume is empty / database is brand-new).
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      # schema.sql mount removed — main.py lifespan handles CREATE EXTENSION
+      # + SQLAlchemy create_all on every startup, so no init-script needed.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d cc2_db"]
       interval: 5s
@@ -48,13 +48,6 @@ services:
       SEED_CARRIERS: "8"
       SEED_ROUTES: "12"
       SEED_SHIPMENTS: "20"
-      AGENT_TICK_INTERVAL: "10.0"
-      RISK_THRESHOLD: "0.6"
-      BOTTLENECK_THRESHOLD: "0.85"
-      CARRIER_RELIABILITY_THRESHOLD: "0.5"
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
-      GEMINI_PRIMARY_MODEL: "gemini-3.1-flash"
-      GEMINI_FALLBACK_MODEL: "gemini-3.1-flash-lite"
     depends_on:
       postgres:
         condition: service_healthy

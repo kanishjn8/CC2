@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -12,8 +13,8 @@ import {
   Radio,
 } from "lucide-react"
 import {
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -24,12 +25,11 @@ import {
   Cell,
   Legend,
 } from "recharts"
-import { useOverview, useAgentMetrics, useShipments } from "@/hooks/use-data"
+import { useShipments, useWarehouses, useCarriers, useAgentMetrics, useSimulationStatus } from "@/hooks/use-data"
 import { cn, getHealthColor, formatPercent } from "@/lib/utils"
 import dynamic from "next/dynamic"
 import { motion } from "framer-motion"
 import { AnimatedCounter } from "@/components/animated-counter"
-import { Sparkline } from "@/components/sparkline"
 import { LiveActivityFeed } from "@/components/live-activity-feed"
 
 const ShipmentMap = dynamic(() => import("@/components/shipment-map"), {
@@ -42,11 +42,72 @@ const ShipmentMap = dynamic(() => import("@/components/shipment-map"), {
 })
 
 export default function OverviewPage() {
-  const { data: overview, loading } = useOverview()
+  const { data: shipments, loading: shipmentsLoading } = useShipments()
+  const { data: warehouses } = useWarehouses()
+  const { data: carriers } = useCarriers()
   const { data: metrics } = useAgentMetrics()
-  const { data: shipments } = useShipments()
+  const { data: simStatus } = useSimulationStatus()
 
-  if (loading) {
+  // Compute overview stats from real data
+  const overview = useMemo(() => {
+    const totalShipments = shipments.length
+    const delayed = shipments.filter((s) => s.status === "delayed" || s.status === "failed")
+    const shipmentsAtRisk = delayed.length
+
+    // Predicted SLA breaches: shipments where ETA > SLA deadline
+    const slaBreaches = shipments.filter((s) => {
+      if (s.status === "delivered") return false
+      return new Date(s.eta) > new Date(s.sla_deadline)
+    }).length
+
+    // Network health: based on avg warehouse utilisation, carrier reliability, and on-time rate
+    const avgCongestion = warehouses.length
+      ? warehouses.reduce((sum, w) => sum + w.congestion_score, 0) / warehouses.length
+      : 0
+    const avgReliability = carriers.length
+      ? carriers.reduce((sum, c) => sum + c.reliability_score, 0) / carriers.length
+      : 1
+    const onTimeRate = totalShipments
+      ? 1 - shipmentsAtRisk / totalShipments
+      : 1
+    const healthScore = Math.round(
+      ((1 - avgCongestion) * 0.3 + avgReliability * 0.4 + onTimeRate * 0.3) * 100
+    )
+
+    // Status distribution for the pie chart
+    const statusCounts: Record<string, number> = {}
+    shipments.forEach((s) => {
+      statusCounts[s.status] = (statusCounts[s.status] || 0) + 1
+    })
+    const statusDistribution = [
+      { level: "Delayed/Failed", count: (statusCounts["delayed"] || 0) + (statusCounts["failed"] || 0), color: "#ef4444" },
+      { level: "In Transit", count: statusCounts["in_transit"] || 0, color: "#f59e0b" },
+      { level: "Delivered", count: statusCounts["delivered"] || 0, color: "#10b981" },
+      { level: "Dispatched", count: statusCounts["dispatched"] || 0, color: "#3b82f6" },
+      { level: "Created", count: statusCounts["created"] || 0, color: "#8b5cf6" },
+    ].filter((b) => b.count > 0)
+
+    return {
+      totalShipments,
+      shipmentsAtRisk,
+      slaBreaches,
+      healthScore,
+      activeCarriers: carriers.length,
+      activeWarehouses: warehouses.length,
+      statusDistribution,
+    }
+  }, [shipments, warehouses, carriers])
+
+  // Warehouse utilization chart data
+  const warehouseChartData = useMemo(() =>
+    warehouses.map((w) => ({
+      name: w.location,
+      utilization: Math.round((w.current_load / w.capacity) * 100),
+    })),
+    [warehouses]
+  )
+
+  if (shipmentsLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -57,61 +118,49 @@ export default function OverviewPage() {
   const kpiCards = [
     {
       title: "Total Shipments",
-      value: overview.total_shipments,
+      value: overview.totalShipments,
       icon: Package,
       color: "text-primary",
       bgColor: "bg-primary/10 border-primary/20",
-      sparkData: overview.shipment_trend.map((t) => t.count),
-      sparkColor: "hsl(199, 89%, 48%)",
     },
     {
-      title: "Shipments at Risk",
-      value: overview.shipments_at_risk,
+      title: "Delayed / Failed",
+      value: overview.shipmentsAtRisk,
       icon: AlertTriangle,
       color: "text-amber-400",
       bgColor: "bg-amber-500/10 border-amber-500/20",
-      sparkData: overview.shipment_trend.map((t) => t.at_risk),
-      sparkColor: "#f59e0b",
     },
     {
-      title: "Predicted SLA Breaches",
-      value: overview.predicted_sla_breaches,
+      title: "SLA Breaches",
+      value: overview.slaBreaches,
       icon: ShieldAlert,
       color: "text-red-400",
       bgColor: "bg-red-500/10 border-red-500/20",
-      sparkData: [1, 1, 2, 2, 3, 3, 2, 3, 3, 3],
-      sparkColor: "#ef4444",
     },
     {
       title: "Network Health",
-      value: `${overview.network_health_score}%`,
+      value: `${overview.healthScore}%`,
       icon: Activity,
-      color: getHealthColor(overview.network_health_score),
-      bgColor: overview.network_health_score >= 80
+      color: getHealthColor(overview.healthScore),
+      bgColor: overview.healthScore >= 80
         ? "bg-emerald-500/10 border-emerald-500/20"
-        : overview.network_health_score >= 60
+        : overview.healthScore >= 60
         ? "bg-amber-500/10 border-amber-500/20"
         : "bg-red-500/10 border-red-500/20",
-      sparkData: [65, 68, 70, 72, 71, 73, 72, 72, 71, 72],
-      sparkColor: "#10b981",
     },
     {
       title: "Active Carriers",
-      value: overview.active_carriers,
+      value: overview.activeCarriers,
       icon: Truck,
       color: "text-purple-400",
       bgColor: "bg-purple-500/10 border-purple-500/20",
-      sparkData: [4, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-      sparkColor: "#a855f7",
     },
     {
       title: "Active Warehouses",
-      value: overview.active_warehouses,
+      value: overview.activeWarehouses,
       icon: Warehouse,
       color: "text-cyan-400",
       bgColor: "bg-cyan-500/10 border-cyan-500/20",
-      sparkData: [6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
-      sparkColor: "#22d3ee",
     },
   ]
 
@@ -136,18 +185,10 @@ export default function OverviewPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-muted-foreground">{kpi.title}</p>
-                      <div className="flex items-center gap-2">
-                        <AnimatedCounter
-                          value={kpi.value}
-                          className={cn("text-2xl font-bold", kpi.color)}
-                        />
-                        <Sparkline
-                          data={kpi.sparkData}
-                          color={kpi.sparkColor}
-                          width={48}
-                          height={20}
-                        />
-                      </div>
+                      <AnimatedCounter
+                        value={kpi.value}
+                        className={cn("text-2xl font-bold", kpi.color)}
+                      />
                     </div>
                   </div>
                 </CardContent>
@@ -177,108 +218,87 @@ export default function OverviewPage() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Shipment Trend Chart */}
+        {/* Warehouse Utilization Chart */}
         <Card className="lg:col-span-2 bg-black/60 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-sm font-semibold text-muted-foreground">
-              Shipment Volume & Risk Trend
+              Warehouse Utilization
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={overview.shipment_trend}>
-                <defs>
-                  <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(199, 89%, 48%)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(199, 89%, 48%)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240, 3.7%, 15.9%)" />
-                <XAxis dataKey="time" tick={{ fill: "#71717a", fontSize: 11 }} />
-                <YAxis tick={{ fill: "#71717a", fontSize: 11 }} />
-                <Tooltip
-                  cursor={{ fill: "hsl(240, 4%, 16%, 0.5)" }}
-                  wrapperStyle={{ outline: "none" }}
-                  contentStyle={{
-                    backgroundColor: "hsl(0, 0%, 3.9%)",
-                    border: "1px solid hsl(240, 3.7%, 15.9%)",
-                    borderRadius: "8px",
-                    color: "#fafafa",
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  stroke="hsl(199, 89%, 48%)"
-                  fillOpacity={1}
-                  fill="url(#colorCount)"
-                  strokeWidth={2}
-                  name="Total"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="at_risk"
-                  stroke="#ef4444"
-                  fillOpacity={1}
-                  fill="url(#colorRisk)"
-                  strokeWidth={2}
-                  name="At Risk"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {warehouseChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={warehouseChartData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(240, 3.7%, 15.9%)" />
+                  <XAxis type="number" domain={[0, 100]} tick={{ fill: "#71717a", fontSize: 11 }} />
+                  <YAxis type="category" dataKey="name" width={110} tick={{ fill: "#71717a", fontSize: 11 }} />
+                  <Tooltip
+                    cursor={{ fill: "hsl(240, 4%, 16%, 0.5)" }}
+                    wrapperStyle={{ outline: "none" }}
+                    contentStyle={{
+                      backgroundColor: "hsl(0, 0%, 3.9%)",
+                      border: "1px solid hsl(240, 3.7%, 15.9%)",
+                      borderRadius: "8px",
+                      color: "#fafafa",
+                    }}
+                    formatter={(value: number) => [`${value}%`, "Utilization"]}
+                  />
+                  <Bar dataKey="utilization" radius={[0, 4, 4, 0]} fill="hsl(199, 89%, 48%)" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-12">No warehouse data available</p>
+            )}
           </CardContent>
         </Card>
 
-        {/* Risk Distribution Pie */}
+        {/* Status Distribution Pie */}
         <Card className="bg-black/60 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-sm font-semibold text-muted-foreground">
-              Risk Distribution
+              Shipment Status Distribution
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={overview.risk_distribution}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={4}
-                  dataKey="count"
-                  nameKey="level"
-                  strokeWidth={0}
-                >
-                  {overview.risk_distribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Legend
-                  formatter={(value) => (
-                    <span style={{ color: "#a1a1aa", fontSize: "12px" }}>{value}</span>
-                  )}
-                  wrapperStyle={{ paddingTop: "16px" }}
-                />
-                <Tooltip
-                  cursor={{ fill: "hsl(240, 4%, 16%, 0.5)" }}
-                  wrapperStyle={{ outline: "none", zIndex: 9999 }}
-                  contentStyle={{
-                    backgroundColor: "hsl(0, 0%, 3.9%)",
-                    border: "1px solid hsl(240, 3.7%, 15.9%)",
-                    borderRadius: "8px",
-                    color: "#fafafa",
-                    padding: "8px 12px",
-                  }}
-                  itemStyle={{ color: "#fafafa", fontSize: "12px" }}
-                  labelStyle={{ color: "#a1a1aa", fontSize: "11px", marginBottom: "4px" }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {overview.statusDistribution.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={overview.statusDistribution}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={4}
+                    dataKey="count"
+                    nameKey="level"
+                    strokeWidth={0}
+                  >
+                    {overview.statusDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Legend
+                    formatter={(value) => (
+                      <span style={{ color: "#a1a1aa", fontSize: "12px" }}>{value}</span>
+                    )}
+                    wrapperStyle={{ paddingTop: "16px" }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "hsl(240, 4%, 16%, 0.5)" }}
+                    wrapperStyle={{ outline: "none", zIndex: 9999 }}
+                    contentStyle={{
+                      backgroundColor: "hsl(0, 0%, 3.9%)",
+                      border: "1px solid hsl(240, 3.7%, 15.9%)",
+                      borderRadius: "8px",
+                      color: "#fafafa",
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-12">No shipment data yet</p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -300,59 +320,59 @@ export default function OverviewPage() {
 
         {/* Agent Performance Metrics */}
         <Card className="lg:col-span-2">
-        <CardHeader>
-          <CardTitle className="text-sm font-semibold text-muted-foreground">
-            AI Agent Performance
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">Intervention Success Rate</p>
-              <p className="text-3xl font-bold text-emerald-400">
-                {formatPercent(metrics.intervention_success_rate)}
-              </p>
-              <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-all"
-                  style={{ width: `${metrics.intervention_success_rate * 100}%` }}
-                />
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold text-muted-foreground">
+              AI Agent Performance
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Intervention Success</p>
+                <p className="text-3xl font-bold text-emerald-400">
+                  {formatPercent(metrics.intervention_success_rate)}
+                </p>
+                <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all"
+                    style={{ width: `${metrics.intervention_success_rate * 100}%` }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Avg Confidence</p>
+                <p className="text-3xl font-bold text-primary">
+                  {formatPercent(metrics.average_confidence)}
+                </p>
+                <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${metrics.average_confidence * 100}%` }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">False Positive Rate</p>
+                <p className="text-3xl font-bold text-amber-400">
+                  {formatPercent(metrics.false_positive_rate)}
+                </p>
+                <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-amber-500 transition-all"
+                    style={{ width: `${metrics.false_positive_rate * 100}%` }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Total Decisions</p>
+                <p className="text-3xl font-bold text-foreground">{metrics.total_decisions}</p>
+                <Badge variant="outline" className="text-xs">
+                  Sim time: {simStatus.sim_time.toFixed(1)}h
+                </Badge>
               </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">Prediction Accuracy</p>
-              <p className="text-3xl font-bold text-primary">
-                {formatPercent(metrics.prediction_accuracy)}
-              </p>
-              <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${metrics.prediction_accuracy * 100}%` }}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">False Positive Rate</p>
-              <p className="text-3xl font-bold text-amber-400">
-                {formatPercent(metrics.false_positive_rate)}
-              </p>
-              <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-amber-500 transition-all"
-                  style={{ width: `${metrics.false_positive_rate * 100}%` }}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">Total Decisions Made</p>
-              <p className="text-3xl font-bold text-foreground">{metrics.total_decisions}</p>
-              <Badge variant="outline" className="text-xs">
-                Last 24 hours
-              </Badge>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

@@ -92,9 +92,9 @@ export function CommandPalette() {
               <span className="text-muted-foreground text-xs">
                 {s.origin} → {s.destination}
               </span>
-              {s.delay_risk >= 0.7 && (
+              {(s.status === "delayed" || s.status === "failed") && (
                 <span className="ml-auto text-[10px] text-red-400 font-semibold">
-                  Risk {Math.round(s.delay_risk * 100)}%
+                  {s.status === "failed" ? "Failed" : "Delayed"}
                 </span>
               )}
             </CommandItem>

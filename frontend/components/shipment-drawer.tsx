@@ -16,7 +16,7 @@ import {
   ArrowRight,
 } from "lucide-react"
 import type { Shipment } from "@/lib/types"
-import { cn, getRiskColor, getRiskLabel, formatTimestamp } from "@/lib/utils"
+import { cn, formatTimestamp } from "@/lib/utils"
 
 interface ShipmentDrawerProps {
   shipment: Shipment | null
@@ -40,7 +40,7 @@ export function ShipmentDrawer({ shipment, open, onClose }: ShipmentDrawerProps)
   const currentStepIdx = STATUS_STEPS.indexOf(
     shipment.status as (typeof STATUS_STEPS)[number]
   )
-  const isDelayed = shipment.status === "delayed" || shipment.status === "at_risk"
+  const isDelayed = shipment.status === "delayed" || shipment.status === "failed"
 
   const slaDeadline = new Date(shipment.sla_deadline)
   const eta = new Date(shipment.eta)
@@ -64,15 +64,14 @@ export function ShipmentDrawer({ shipment, open, onClose }: ShipmentDrawerProps)
             >
               {STATUS_LABELS[shipment.status] || shipment.status}
             </Badge>
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-xs",
-                getRiskColor(shipment.delay_risk)
-              )}
-            >
-              Risk: {Math.round(shipment.delay_risk * 100)}% {getRiskLabel(shipment.delay_risk)}
-            </Badge>
+            {willBreachSla && (
+              <Badge
+                variant="destructive"
+                className="text-xs"
+              >
+                SLA Breaching
+              </Badge>
+            )}
           </div>
         </SheetHeader>
 
@@ -155,12 +154,12 @@ export function ShipmentDrawer({ shipment, open, onClose }: ShipmentDrawerProps)
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-accent/50 p-3">
               <p className="text-[10px] text-muted-foreground uppercase mb-1">Carrier</p>
-              <p className="text-sm font-semibold text-foreground">{shipment.carrier_id}</p>
+              <p className="text-sm font-semibold text-foreground">{shipment.carrier}</p>
             </div>
             <div className="rounded-lg bg-accent/50 p-3">
-              <p className="text-[10px] text-muted-foreground uppercase mb-1">Delay Risk</p>
-              <p className={cn("text-sm font-semibold", getRiskColor(shipment.delay_risk))}>
-                {Math.round(shipment.delay_risk * 100)}%
+              <p className="text-[10px] text-muted-foreground uppercase mb-1">Status</p>
+              <p className={cn("text-sm font-semibold", isDelayed ? "text-red-400" : "text-emerald-400")}>
+                {STATUS_LABELS[shipment.status] || shipment.status}
               </p>
             </div>
             <div className="rounded-lg bg-accent/50 p-3">
@@ -181,39 +180,25 @@ export function ShipmentDrawer({ shipment, open, onClose }: ShipmentDrawerProps)
             </div>
           </div>
 
-          {/* Recommended Action */}
-          {shipment.recommended_action && (
-            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1 font-semibold flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3 text-primary" />
-                AI Recommended Action
-              </p>
-              <p className="text-sm text-primary font-medium">{shipment.recommended_action}</p>
-            </div>
-          )}
-
-          {/* Risk Gauge */}
+          {/* SLA Assessment */}
           <div>
             <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2 font-semibold">
-              Risk Assessment
+              SLA Assessment
             </p>
             <div className="h-3 rounded-full bg-secondary overflow-hidden">
               <div
                 className={cn(
                   "h-full rounded-full transition-all duration-1000",
-                  shipment.delay_risk >= 0.7
+                  willBreachSla
                     ? "bg-gradient-to-r from-red-600 to-red-400"
-                    : shipment.delay_risk >= 0.4
-                    ? "bg-gradient-to-r from-amber-600 to-amber-400"
                     : "bg-gradient-to-r from-emerald-600 to-emerald-400"
                 )}
-                style={{ width: `${shipment.delay_risk * 100}%` }}
+                style={{ width: willBreachSla ? "100%" : "40%" }}
               />
             </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-[9px] text-muted-foreground">0%</span>
-              <span className="text-[9px] text-muted-foreground">100%</span>
-            </div>
+            <p className={cn("text-xs mt-2 font-medium", willBreachSla ? "text-red-400" : "text-emerald-400")}>
+              {willBreachSla ? "ETA exceeds SLA deadline" : "On track to meet SLA"}
+            </p>
           </div>
         </div>
       </SheetContent>

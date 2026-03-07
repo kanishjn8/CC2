@@ -21,15 +21,20 @@ export function usePollingData<T>({
   fallback,
   interval = 10000,
 }: UsePollingDataOptions<T>): UsePollingDataReturn<T> {
+  // Store fallback in a ref so it never triggers re-renders / effect resets
+  const fallbackRef = useRef(fallback)
+  const fetcherRef = useRef(fetcher)
+  fetcherRef.current = fetcher
+
   const [data, setData] = useState<T>(fallback)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const mountedRef = useRef(true)
 
   const fetchData = useCallback(async () => {
     try {
-      const result = await fetcher()
+      const result = await fetcherRef.current()
       if (mountedRef.current) {
         setData(result)
         setError(null)
@@ -37,14 +42,13 @@ export function usePollingData<T>({
       }
     } catch {
       if (mountedRef.current) {
-        setData(fallback)
-        setError(null)
-        setLastUpdated(new Date())
+        // On error keep existing data (don't reset to fallback)
+        setError("Fetch failed")
       }
     } finally {
       if (mountedRef.current) setLoading(false)
     }
-  }, [fetcher, fallback])
+  }, []) // stable — never changes
 
   useEffect(() => {
     mountedRef.current = true

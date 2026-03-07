@@ -1,8 +1,35 @@
 """Pydantic schemas for API request / response validation."""
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ── GeoJSON helper ───────────────────────────────────────────────────────────
+
+class GeoJSONPoint(BaseModel):
+    """GeoJSON Point geometry."""
+    type: str = "Point"
+    coordinates: List[float]   # [longitude, latitude]
+
+
+class GeoJSONLineString(BaseModel):
+    """GeoJSON LineString geometry."""
+    type: str = "LineString"
+    coordinates: List[List[float]]   # [[lon, lat], ...]
+
+
+class GeoJSONFeature(BaseModel):
+    """A single GeoJSON Feature."""
+    type: str = "Feature"
+    geometry: Optional[dict] = None
+    properties: dict = {}
+
+
+class GeoJSONFeatureCollection(BaseModel):
+    """GeoJSON FeatureCollection for map consumption."""
+    type: str = "FeatureCollection"
+    features: List[GeoJSONFeature] = []
 
 
 # ── Shipments ────────────────────────────────────────────────────────────────
@@ -97,11 +124,12 @@ class SimStatusResponse(BaseModel):
     route_count: int
 
 
-# ── Agent ────────────────────────────────────────────────────────────────────
+# ── Decision Log / Agent ─────────────────────────────────────────────────────
 
 class DecisionLogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: int
     decision_id: str
     risk_type: str
     entity_id: str
@@ -142,8 +170,13 @@ class AgentStatusOut(BaseModel):
 class AgentAnalyzeResponse(BaseModel):
     status: str
     message: str
-    risks_detected: int
-    risks: list = Field(default_factory=list)
+    risks_detected: int = 0
+    risks: list = []
+
+
+class AgentSummaryOut(BaseModel):
+    cycle_count: int
+    summary: str
 
 
 class ApprovalRequest(BaseModel):
@@ -155,8 +188,3 @@ class ApprovalResponse(BaseModel):
     message: str
     decision_id: str
     result: Optional[dict] = None
-
-
-class AgentSummaryOut(BaseModel):
-    cycle_count: int
-    summary: str

@@ -3,6 +3,7 @@ CC2 — Logistics Simulation & Data Layer
 FastAPI application entry point.
 """
 
+import logging
 import time
 from contextlib import asynccontextmanager
 
@@ -16,9 +17,27 @@ from app.models import *  # noqa: ensure all models are registered
 from app.seed import seed_all
 from app.database import SessionLocal
 from app.simulation import simulation
-from app.routers import data, simulate, agent
-from app.ai_agent import agent_loop
+from app.routers import data, simulate
+from app.routers.geo import router as geo_router
+from app.routers.agent import router as agent_router
 from app.config import SEED_WAREHOUSES, SEED_CARRIERS, SEED_ROUTES, SEED_SHIPMENTS
+from app.ai_agent import agent_loop
+
+# ── Logging setup ─────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+# Silence noisy third-party loggers
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("watchfiles").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+log = logging.getLogger("cc2.main")
 
 
 def _wait_for_db(retries: int = 15, delay: float = 2.0):
@@ -27,10 +46,10 @@ def _wait_for_db(retries: int = 15, delay: float = 2.0):
         try:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            print("[startup] Database is ready.")
+            log.info("✅ Database is ready.")
             return
         except OperationalError:
-            print(f"[startup] Waiting for database… (attempt {attempt}/{retries})")
+            log.warning("⏳ Waiting for database… (attempt %d/%d)", attempt, retries)
             time.sleep(delay)
     raise RuntimeError("Could not connect to the database after multiple retries.")
 
@@ -38,10 +57,19 @@ def _wait_for_db(retries: int = 15, delay: float = 2.0):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
+    log.info("=" * 60)
+    log.info("CC2 Logistics Platform — starting up")
+    log.info("=" * 60)
+
     _wait_for_db()
 
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+        conn.commit()
+    log.info("✅ PostGIS extension verified.")
+
     Base.metadata.create_all(bind=engine)
-    print("[startup] Database tables created / verified.")
+    log.info("✅ Database tables created / verified.")
 
     db = SessionLocal()
     try:
@@ -56,19 +84,23 @@ async def lifespan(app: FastAPI):
         db.close()
 
     simulation.start()
-    print("[startup] Simulation engine started.")
+    log.info("✅ Simulation engine started.")
 
     agent_loop.initialize()
     agent_loop.start()
-    print("[startup] AI Agent started.")
+    log.info("✅ AI Agent loop started.")
+
+    log.info("=" * 60)
+    log.info("CC2 is ready — docs at http://localhost:8000/docs")
+    log.info("=" * 60)
 
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
-    agent_loop.stop()
-    print("[shutdown] AI Agent stopped.")
+    log.info("Shutting down…")
     simulation.stop()
-    print("[shutdown] Simulation engine stopped.")
+    agent_loop.stop()
+    log.info("✅ Simulation engine and AI Agent stopped.")
 
 
 app = FastAPI(
@@ -92,7 +124,8 @@ app.add_middleware(
 # ── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(data.router, prefix="/api")
 app.include_router(simulate.router, prefix="/api")
-app.include_router(agent.router, prefix="/api")
+app.include_router(geo_router, prefix="/api")
+app.include_router(agent_router, prefix="/api")
 
 
 @app.get("/", tags=["Health"])

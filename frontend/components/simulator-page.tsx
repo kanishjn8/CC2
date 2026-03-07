@@ -16,12 +16,7 @@ import {
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
-
-interface ScenarioResult {
-  success: boolean
-  message: string
-  events_generated: number
-}
+import type { SimulationResponse } from "@/lib/types"
 
 interface ScenarioConfig {
   id: string
@@ -32,11 +27,11 @@ interface ScenarioConfig {
   color: string
   borderColor: string
   bgColor: string
-  trigger: () => Promise<ScenarioResult>
+  trigger: () => Promise<SimulationResponse>
 }
 
 export default function SimulatorPage() {
-  const [results, setResults] = useState<Record<string, ScenarioResult | null>>({})
+  const [results, setResults] = useState<Record<string, SimulationResponse | null>>({})
   const [loadingId, setLoadingId] = useState<string | null>(null)
 
   const scenarios: ScenarioConfig[] = [
@@ -86,13 +81,12 @@ export default function SimulatorPage() {
       const result = await scenario.trigger()
       setResults((prev) => ({ ...prev, [scenario.id]: result }))
     } catch {
-      // Mock fallback when backend is not available
       setResults((prev) => ({
         ...prev,
         [scenario.id]: {
-          success: true,
-          message: `${scenario.title} scenario triggered successfully (demo mode)`,
-          events_generated: Math.floor(Math.random() * 8) + 3,
+          status: "error",
+          message: `Failed to trigger ${scenario.title}. Is the backend running?`,
+          events_generated: 0,
         },
       }))
     } finally {
@@ -178,19 +172,19 @@ export default function SimulatorPage() {
                   <div
                     className={cn(
                       "rounded-lg border p-3 text-xs",
-                      result.success
+                      result.status !== "error"
                         ? "border-emerald-500/30 bg-emerald-500/10"
                         : "border-red-500/30 bg-red-500/10"
                     )}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      {result.success ? (
+                      {result.status !== "error" ? (
                         <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
                       ) : (
                         <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
                       )}
-                      <span className={cn("font-semibold", result.success ? "text-emerald-400" : "text-red-400")}>
-                        {result.success ? "Scenario Triggered" : "Failed"}
+                      <span className={cn("font-semibold", result.status !== "error" ? "text-emerald-400" : "text-red-400")}>
+                        {result.status !== "error" ? "Scenario Triggered" : "Failed"}
                       </span>
                     </div>
                     <p className="text-muted-foreground">{result.message}</p>

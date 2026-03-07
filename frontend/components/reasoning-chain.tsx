@@ -58,9 +58,9 @@ function getStageContent(stage: string, decision: AgentDecision): string {
     case "reason":
       return decision.root_cause
     case "decide":
-      return `Risk: ${(decision.risk_score * 100).toFixed(0)}% | Confidence: ${(decision.confidence * 100).toFixed(0)}% | SLA Impact: ${decision.sla_impact}`
+      return `Risk: ${(decision.risk_score * 100).toFixed(0)}% | Confidence: ${(decision.confidence * 100).toFixed(0)}% | SLA Impact: ${decision.sla_impact != null ? `${decision.sla_impact} hrs` : "N/A"}`
     case "act":
-      return decision.action_taken
+      return decision.recommended_action
     default:
       return ""
   }

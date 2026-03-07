@@ -67,7 +67,7 @@ export default function WarehousesPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-semibold text-foreground">
-                    {wh.name}
+                    {wh.warehouse_id}
                   </CardTitle>
                   {isCongested && (
                     <Badge variant="destructive" className="text-[10px]">
@@ -75,7 +75,7 @@ export default function WarehousesPage() {
                     </Badge>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">{wh.warehouse_id} · {wh.location}</p>
+                <p className="text-xs text-muted-foreground">{wh.location}</p>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Utilization */}

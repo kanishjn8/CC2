@@ -15,16 +15,16 @@ export function AlertNotifications() {
   const firedRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    // High-risk shipments
+    // Delayed / failed shipments
     shipments
-      .filter((s) => s.delay_risk >= 0.85)
+      .filter((s) => s.status === "delayed" || s.status === "failed")
       .forEach((s) => {
         const key = `ship-${s.shipment_id}`
         if (!firedRef.current.has(key)) {
           firedRef.current.add(key)
           toast({
-            title: `⚠️ Critical Risk: ${s.shipment_id}`,
-            description: `${s.origin} → ${s.destination} | Delay risk ${Math.round(s.delay_risk * 100)}%`,
+            title: `⚠️ ${s.status === "failed" ? "Failed" : "Delayed"}: ${s.shipment_id}`,
+            description: `${s.origin} → ${s.destination} | Carrier: ${s.carrier}`,
             variant: "destructive",
           })
         }
@@ -38,7 +38,7 @@ export function AlertNotifications() {
         if (!firedRef.current.has(key)) {
           firedRef.current.add(key)
           toast({
-            title: `🏭 Warehouse Congestion: ${w.name}`,
+            title: `🏭 Warehouse Congestion: ${w.location}`,
             description: `Load: ${w.current_load}/${w.capacity} | Congestion: ${Math.round(w.congestion_score * 100)}%`,
           })
         }

@@ -1,12 +1,18 @@
 -- =============================================================================
 -- CC2 — Logistics Simulation Platform
--- PostgreSQL 16 Schema
+-- PostgreSQL 16 + PostGIS Schema
 --
 -- Generated from: backend/app/models.py
 -- Apply manually :  psql -U postgres -d cc2_db -f schema.sql
 -- Docker auto-run:  schema.sql is mounted at /docker-entrypoint-initdb.d/
 --                   and executed automatically on first container start.
 -- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- Enable PostGIS extension (requires postgis/postgis Docker image)
+-- ---------------------------------------------------------------------------
+
+CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- ---------------------------------------------------------------------------
 -- Enum types
@@ -58,11 +64,17 @@ CREATE TABLE IF NOT EXISTS shipments (
     eta             TIMESTAMP       NOT NULL,
     sla_deadline    TIMESTAMP       NOT NULL,
     status          shipmentstatus  NOT NULL DEFAULT 'created',
+    current_location GEOMETRY(Point, 4326),            -- live shipment position (WGS84)
+    origin_point     GEOMETRY(Point, 4326),            -- origin coordinates
+    destination_point GEOMETRY(Point, 4326),           -- destination coordinates
     created_at      TIMESTAMP       NOT NULL DEFAULT now(),
     updated_at      TIMESTAMP       NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS ix_shipments_shipment_id ON shipments (shipment_id);
+CREATE INDEX IF NOT EXISTS ix_shipments_current_location ON shipments USING GIST (current_location);
+CREATE INDEX IF NOT EXISTS ix_shipments_origin_point ON shipments USING GIST (origin_point);
+CREATE INDEX IF NOT EXISTS ix_shipments_destination_point ON shipments USING GIST (destination_point);
 
 -- ---------------------------------------------------------------------------
 -- warehouse_state
@@ -76,10 +88,12 @@ CREATE TABLE IF NOT EXISTS warehouse_state (
     current_load     INTEGER      NOT NULL DEFAULT 0,
     queue_length     INTEGER      NOT NULL DEFAULT 0,
     congestion_score FLOAT        NOT NULL DEFAULT 0.0,
+    geom             GEOMETRY(Point, 4326),             -- warehouse hub location (WGS84)
     updated_at       TIMESTAMP    NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS ix_warehouse_state_warehouse_id ON warehouse_state (warehouse_id);
+CREATE INDEX IF NOT EXISTS ix_warehouse_state_geom ON warehouse_state USING GIST (geom);
 
 -- ---------------------------------------------------------------------------
 -- carrier_performance
@@ -111,10 +125,12 @@ CREATE TABLE IF NOT EXISTS routes (
     distance       FLOAT         NOT NULL,        -- kilometres
     traffic_level  trafficlevel  NOT NULL DEFAULT 'low',
     weather_factor FLOAT         NOT NULL DEFAULT 1.0,  -- 1.0 = clear, >1 = degraded
+    path           GEOMETRY(LineString, 4326),           -- route path (WGS84)
     updated_at     TIMESTAMP     NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS ix_routes_route_id ON routes (route_id);
+CREATE INDEX IF NOT EXISTS ix_routes_path ON routes USING GIST (path);
 
 -- ---------------------------------------------------------------------------
 -- simulation_events
@@ -134,30 +150,31 @@ CREATE INDEX IF NOT EXISTS ix_simulation_events_entity_id  ON simulation_events 
 CREATE INDEX IF NOT EXISTS ix_simulation_events_created_at ON simulation_events (created_at);
 
 -- ---------------------------------------------------------------------------
--- decision_log  (AI Agent)
+-- decision_log  (AI Agent Observe→Reason→Decide→Act cycle)
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS decision_log (
-    id                  SERIAL       PRIMARY KEY,
-    decision_id         VARCHAR(64)  NOT NULL UNIQUE,
-    risk_type           VARCHAR(64)  NOT NULL,
-    entity_id           VARCHAR(64)  NOT NULL,
+    id                  SERIAL          PRIMARY KEY,
+    decision_id         VARCHAR(64)     NOT NULL UNIQUE,
+    risk_type           VARCHAR(64)     NOT NULL,           -- delay_risk | bottleneck | carrier_degradation
+    entity_id           VARCHAR(64)     NOT NULL,
     shipment_id         VARCHAR(64),
-    risk_score          FLOAT        NOT NULL,
-    problem             TEXT         NOT NULL,
-    evidence            TEXT,
-    root_cause          TEXT         NOT NULL,
-    confidence          FLOAT        NOT NULL,
-    recommended_action  VARCHAR(64)  NOT NULL,
-    action_details      TEXT,
-    requires_approval   BOOLEAN      NOT NULL DEFAULT FALSE,
-    status              VARCHAR(32)  NOT NULL DEFAULT 'executed',
-    outcome             VARCHAR(32)  NOT NULL DEFAULT 'pending',
+    risk_score          FLOAT           NOT NULL,
+    problem             TEXT            NOT NULL,
+    evidence            TEXT,                               -- JSON
+    root_cause          TEXT            NOT NULL,
+    confidence          FLOAT           NOT NULL,
+    recommended_action  VARCHAR(64)     NOT NULL,           -- reroute_shipment | prioritize_loading | ...
+    action_details      TEXT,                               -- JSON
+    requires_approval   BOOLEAN         NOT NULL DEFAULT FALSE,
+    status              VARCHAR(32)     NOT NULL DEFAULT 'executed',  -- executed | pending_approval | approved | rejected
+    outcome             VARCHAR(32)     NOT NULL DEFAULT 'pending',   -- pending | success | failed | rejected
     sla_impact          FLOAT,
-    created_at          TIMESTAMP    NOT NULL DEFAULT now(),
+    created_at          TIMESTAMP       NOT NULL DEFAULT now(),
     resolved_at         TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS ix_decision_log_decision_id ON decision_log (decision_id);
+CREATE INDEX IF NOT EXISTS ix_decision_log_entity_id   ON decision_log (entity_id);
 CREATE INDEX IF NOT EXISTS ix_decision_log_shipment_id ON decision_log (shipment_id);
 CREATE INDEX IF NOT EXISTS ix_decision_log_created_at  ON decision_log (created_at);

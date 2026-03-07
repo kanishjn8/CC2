@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum as SAEnum,
     func,
 )
+from geoalchemy2 import Geometry
 import enum
 
 from app.database import Base
@@ -66,6 +67,9 @@ class Shipment(Base):
     eta = Column(DateTime, nullable=False)
     sla_deadline = Column(DateTime, nullable=False)
     status = Column(SAEnum(ShipmentStatus), default=ShipmentStatus.created, nullable=False)
+    current_location = Column(Geometry("POINT", srid=4326), nullable=True)
+    origin_point = Column(Geometry("POINT", srid=4326), nullable=True)
+    destination_point = Column(Geometry("POINT", srid=4326), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -80,6 +84,7 @@ class WarehouseState(Base):
     current_load = Column(Integer, default=0, nullable=False)
     queue_length = Column(Integer, default=0, nullable=False)
     congestion_score = Column(Float, default=0.0, nullable=False)
+    geom = Column(Geometry("POINT", srid=4326), nullable=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
@@ -107,6 +112,7 @@ class Route(Base):
     distance = Column(Float, nullable=False)          # in km
     traffic_level = Column(SAEnum(TrafficLevel), default=TrafficLevel.low, nullable=False)
     weather_factor = Column(Float, default=1.0, nullable=False)  # 1.0 = clear, >1 = degraded
+    path = Column(Geometry("LINESTRING", srid=4326), nullable=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 

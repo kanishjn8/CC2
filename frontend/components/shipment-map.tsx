@@ -18,18 +18,73 @@ const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
 const INDIA_STATES_URL =
   "https://gist.githubusercontent.com/jbrobst/56c13bbbf9d97d187fea01ca62ea5112/raw/e388c4cae20aa53cb5090210a42ebb9b765c0a36/india_states.geojson"
 
-// ── Shipment city coordinates [lon, lat] ─────────────────────────────────────
+// ── Shipment city coordinates [lon, lat] — must match backend seed.py ────────
 const CITY_COORDS: Record<string, [number, number]> = {
-  Mumbai: [72.8777, 19.076], Delhi: [77.1025, 28.7041],
-  Bangalore: [77.5946, 12.9716], Chennai: [80.2707, 13.0827],
-  Kolkata: [88.3639, 22.5726], Hyderabad: [78.4867, 17.385],
-  Pune: [73.8567, 18.5204], Ahmedabad: [72.5714, 23.0225],
-  Jaipur: [75.7873, 26.9124], Lucknow: [80.9462, 26.8467],
-  Singapore: [103.8198, 1.3521], Dubai: [55.2708, 25.2048],
-  Shanghai: [121.4737, 31.2304], London: [-0.1278, 51.5074],
-  "New York": [-74.006, 40.7128], Tokyo: [139.6917, 35.6895],
-  Sydney: [151.2093, -33.8688], "Los Angeles": [-118.2437, 34.0522],
-  Hamburg: [9.9937, 53.5511], Rotterdam: [4.4777, 51.9244],
+  // South Asia
+  Mumbai:         [72.8777,  19.0760],
+  Delhi:          [77.1025,  28.7041],
+  Bangalore:      [77.5946,  12.9716],
+  Chennai:        [80.2707,  13.0827],
+  Hyderabad:      [78.4867,  17.3850],
+  Kolkata:        [88.3639,  22.5726],
+  Ahmedabad:      [72.5714,  23.0225],
+  Karachi:        [67.0099,  24.8607],
+  Dhaka:          [90.4125,  23.8103],
+  Colombo:        [79.8612,   6.9271],
+  // East Asia
+  Shanghai:      [121.4737,  31.2304],
+  Beijing:       [116.4074,  39.9042],
+  Shenzhen:      [114.0579,  22.5431],
+  "Hong Kong":   [114.1694,  22.3193],
+  Tokyo:         [139.6917,  35.6895],
+  Osaka:         [135.5022,  34.6937],
+  Seoul:         [126.9780,  37.5665],
+  Taipei:        [121.5654,  25.0330],
+  Singapore:     [103.8198,   1.3521],
+  "Kuala Lumpur":[101.6869,   3.1390],
+  Bangkok:       [100.5018,  13.7563],
+  Jakarta:       [106.8650,  -6.2088],
+  // Middle East
+  Dubai:          [55.2708,  25.2048],
+  "Abu Dhabi":    [54.3773,  24.4539],
+  Riyadh:         [46.7219,  24.6877],
+  Doha:           [51.5310,  25.2854],
+  "Kuwait City":  [47.9783,  29.3759],
+  Muscat:         [58.5922,  23.5880],
+  // Europe
+  London:         [-0.1276,  51.5074],
+  Amsterdam:      [ 4.9041,  52.3676],
+  Frankfurt:      [ 8.6821,  50.1109],
+  Paris:          [ 2.3522,  48.8566],
+  Rotterdam:      [ 4.4777,  51.9244],
+  Hamburg:        [ 9.9937,  53.5511],
+  Antwerp:        [ 4.4025,  51.2194],
+  Barcelona:      [ 2.1734,  41.3851],
+  Milan:          [ 9.1900,  45.4654],
+  Warsaw:         [21.0122,  52.2297],
+  Istanbul:       [28.9784,  41.0082],
+  // Africa
+  Nairobi:        [36.8219,  -1.2921],
+  Lagos:          [ 3.3792,   6.5244],
+  Cairo:          [31.2357,  30.0444],
+  Johannesburg:   [28.0473, -26.2041],
+  Casablanca:     [-7.5898,  33.5731],
+  "Addis Ababa":  [38.7578,   9.0249],
+  // Americas
+  "New York":    [-74.0060,  40.7128],
+  "Los Angeles": [-118.2437, 34.0522],
+  Chicago:       [-87.6298,  41.8781],
+  Miami:         [-80.1918,  25.7617],
+  Houston:       [-95.3698,  29.7604],
+  Toronto:       [-79.3832,  43.6532],
+  "Mexico City": [-99.1332,  19.4326],
+  "São Paulo":   [-46.6333, -23.5505],
+  "Buenos Aires":[-58.3816, -34.6037],
+  Bogotá:        [-74.0721,   4.7110],
+  // Oceania
+  Sydney:        [151.2093, -33.8688],
+  Melbourne:     [144.9631, -37.8136],
+  Auckland:      [174.7633, -36.8485],
 }
 
 // ── Indian state capitals [lon, lat] ─────────────────────────────────────────
@@ -94,22 +149,60 @@ const INDIA_CITIES: { name: string; coords: [number, number]; tier: number }[] =
 
 // ── Global cities (non-India, for mid-zoom) ──────────────────────────────────
 const GLOBAL_CITIES: { name: string; coords: [number, number]; tier: number }[] = [
-  { name: "London", coords: [-0.1278, 51.5074], tier: 1 },
-  { name: "New York", coords: [-74.006, 40.7128], tier: 1 },
-  { name: "Tokyo", coords: [139.6917, 35.6895], tier: 1 },
-  { name: "Shanghai", coords: [121.4737, 31.2304], tier: 1 },
-  { name: "Dubai", coords: [55.2708, 25.2048], tier: 1 },
-  { name: "Singapore", coords: [103.8198, 1.3521], tier: 1 },
-  { name: "Sydney", coords: [151.2093, -33.8688], tier: 2 },
-  { name: "Los Angeles", coords: [-118.2437, 34.0522], tier: 2 },
-  { name: "Hamburg", coords: [9.9937, 53.5511], tier: 2 },
-  { name: "Rotterdam", coords: [4.4777, 51.9244], tier: 2 },
-  { name: "Paris", coords: [2.3522, 48.8566], tier: 2 },
-  { name: "Beijing", coords: [116.4074, 39.9042], tier: 2 },
-  { name: "Seoul", coords: [126.978, 37.5665], tier: 2 },
-  { name: "Bangkok", coords: [100.5018, 13.7563], tier: 2 },
-  { name: "Cairo", coords: [31.2357, 30.0444], tier: 2 },
-  { name: "São Paulo", coords: [-46.6333, -23.5505], tier: 2 },
+  // Tier 1 — always show at zoom ≥ 3.5
+  { name: "London",        coords: [-0.1276,  51.5074], tier: 1 },
+  { name: "New York",      coords: [-74.006,  40.7128], tier: 1 },
+  { name: "Tokyo",         coords: [139.6917, 35.6895], tier: 1 },
+  { name: "Shanghai",      coords: [121.4737, 31.2304], tier: 1 },
+  { name: "Dubai",         coords: [55.2708,  25.2048], tier: 1 },
+  { name: "Singapore",     coords: [103.8198,  1.3521], tier: 1 },
+  // Tier 2 — show at zoom ≥ 5
+  { name: "Sydney",        coords: [151.2093,-33.8688], tier: 2 },
+  { name: "Los Angeles",   coords: [-118.2437,34.0522], tier: 2 },
+  { name: "Hamburg",       coords: [9.9937,  53.5511],  tier: 2 },
+  { name: "Rotterdam",     coords: [4.4777,  51.9244],  tier: 2 },
+  { name: "Paris",         coords: [2.3522,  48.8566],  tier: 2 },
+  { name: "Beijing",       coords: [116.4074,39.9042],  tier: 2 },
+  { name: "Seoul",         coords: [126.978, 37.5665],  tier: 2 },
+  { name: "Bangkok",       coords: [100.5018,13.7563],  tier: 2 },
+  { name: "Cairo",         coords: [31.2357, 30.0444],  tier: 2 },
+  { name: "São Paulo",     coords: [-46.6333,-23.5505], tier: 2 },
+  { name: "Istanbul",      coords: [28.9784, 41.0082],  tier: 2 },
+  { name: "Frankfurt",     coords: [8.6821,  50.1109],  tier: 2 },
+  { name: "Nairobi",       coords: [36.8219, -1.2921],  tier: 2 },
+  { name: "Lagos",         coords: [3.3792,   6.5244],  tier: 2 },
+  { name: "Johannesburg",  coords: [28.0473,-26.2041],  tier: 2 },
+  { name: "Toronto",       coords: [-79.3832, 43.6532], tier: 2 },
+  { name: "Kuala Lumpur",  coords: [101.6869,  3.139],  tier: 2 },
+  { name: "Jakarta",       coords: [106.865,  -6.2088], tier: 2 },
+  { name: "Riyadh",        coords: [46.7219,  24.6877], tier: 2 },
+  { name: "Melbourne",     coords: [144.9631,-37.8136], tier: 2 },
+  { name: "Chicago",       coords: [-87.6298, 41.8781], tier: 2 },
+  { name: "Taipei",        coords: [121.5654, 25.033],  tier: 2 },
+  { name: "Hong Kong",     coords: [114.1694, 22.3193], tier: 2 },
+  // Tier 3 — deep zoom
+  { name: "Amsterdam",     coords: [4.9041,  52.3676],  tier: 3 },
+  { name: "Antwerp",       coords: [4.4025,  51.2194],  tier: 3 },
+  { name: "Barcelona",     coords: [2.1734,  41.3851],  tier: 3 },
+  { name: "Milan",         coords: [9.19,    45.4654],  tier: 3 },
+  { name: "Warsaw",        coords: [21.0122, 52.2297],  tier: 3 },
+  { name: "Osaka",         coords: [135.5022,34.6937],  tier: 3 },
+  { name: "Shenzhen",      coords: [114.0579,22.5431],  tier: 3 },
+  { name: "Doha",          coords: [51.531,  25.2854],  tier: 3 },
+  { name: "Abu Dhabi",     coords: [54.3773, 24.4539],  tier: 3 },
+  { name: "Muscat",        coords: [58.5922, 23.588],   tier: 3 },
+  { name: "Karachi",       coords: [67.0099, 24.8607],  tier: 3 },
+  { name: "Dhaka",         coords: [90.4125, 23.8103],  tier: 3 },
+  { name: "Colombo",       coords: [79.8612,  6.9271],  tier: 3 },
+  { name: "Kuwait City",   coords: [47.9783, 29.3759],  tier: 3 },
+  { name: "Casablanca",    coords: [-7.5898, 33.5731],  tier: 3 },
+  { name: "Addis Ababa",   coords: [38.7578,  9.0249],  tier: 3 },
+  { name: "Miami",         coords: [-80.1918, 25.7617], tier: 3 },
+  { name: "Houston",       coords: [-95.3698, 29.7604], tier: 3 },
+  { name: "Mexico City",   coords: [-99.1332, 19.4326], tier: 3 },
+  { name: "Buenos Aires",  coords: [-58.3816,-34.6037], tier: 3 },
+  { name: "Bogotá",        coords: [-74.0721,  4.711],  tier: 3 },
+  { name: "Auckland",      coords: [174.7633,-36.8485], tier: 3 },
 ]
 
 // ── Country label config ─────────────────────────────────────────────────────
@@ -128,19 +221,22 @@ const SKIP_LABELS = new Set([
 ])
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-function getRouteColor(delayRisk: number): string {
-  if (delayRisk >= 0.7) return "#ef4444"
-  if (delayRisk >= 0.4) return "#f59e0b"
+function getRouteColor(status: string): string {
+  if (status === "delayed" || status === "failed") return "#ef4444"
+  if (status === "in_transit") return "#f59e0b"
   return "#22c55e"
 }
 
 function getStatusLabel(status: string): string {
   switch (status) {
     case "in_transit": return "In Transit"
-    case "at_risk": return "At Risk"
     case "delayed": return "Delayed"
+    case "failed": return "Failed"
     case "dispatched": return "Dispatched"
     case "delivered": return "Delivered"
+    case "at_warehouse": return "At Warehouse"
+    case "out_for_delivery": return "Out for Delivery"
+    case "created": return "Created"
     default: return status
   }
 }
@@ -295,7 +391,7 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
             {({ geographies }) =>
               geographies.map((geo) => (
                 <Geography
-                  key={geo.rpiKey ?? geo.properties?.name ?? geo.id}
+                  key={geo.rsmKey}
                   geography={geo}
                   fill="hsl(240, 4%, 10%)"
                   stroke="hsl(240, 3.7%, 20%)"
@@ -316,7 +412,7 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
               {({ geographies }) =>
                 geographies.map((geo) => (
                   <Geography
-                    key={geo.rpiKey ?? geo.properties?.st_nm ?? geo.id}
+                    key={geo.rsmKey}
                     geography={geo}
                     fill="transparent"
                     stroke="hsl(200, 50%, 25%)"
@@ -439,8 +535,8 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
               key={shipment.shipment_id}
               from={from}
               to={to}
-              stroke={getRouteColor(shipment.delay_risk)}
-              strokeWidth={(shipment.delay_risk >= 0.7 ? 2 : 1.5) * inv}
+              stroke={getRouteColor(shipment.status)}
+              strokeWidth={((shipment.status === "delayed" || shipment.status === "failed") ? 2 : 1.5) * inv}
               strokeLinecap="round"
               strokeDasharray={
                 shipment.status === "in_transit" ? "6 4" :
@@ -463,7 +559,7 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
             const hasIssue = shipments.some(
               (s) =>
                 (s.origin === city.name || s.destination === city.name) &&
-                (s.status === "at_risk" || s.status === "delayed" || s.delay_risk >= 0.7)
+                (s.status === "delayed" || s.status === "failed")
             )
             return (
               <Marker key={`ship-${city.name}`} coordinates={city.coords}>
@@ -524,14 +620,14 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
             <span
               className={cn(
                 "text-[10px] font-medium px-1.5 py-0.5 rounded",
-                hoveredShipment.delay_risk >= 0.7
+                (hoveredShipment.status === "delayed" || hoveredShipment.status === "failed")
                   ? "bg-red-500/20 text-red-400"
-                  : hoveredShipment.delay_risk >= 0.4
+                  : hoveredShipment.status === "in_transit"
                   ? "bg-amber-500/20 text-amber-400"
                   : "bg-emerald-500/20 text-emerald-400"
               )}
             >
-              Risk: {Math.round(hoveredShipment.delay_risk * 100)}%
+              {getStatusLabel(hoveredShipment.status)}
             </span>
             <span className="text-[10px] text-muted-foreground">
               {getStatusLabel(hoveredShipment.status)}
@@ -543,13 +639,13 @@ function ShipmentMapInner({ shipments }: ShipmentMapProps) {
       {/* Legend */}
       <div className="absolute bottom-2 left-3 flex items-center gap-4 text-[10px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-5 rounded-full bg-emerald-500" /> Low Risk
+          <span className="inline-block h-2 w-5 rounded-full bg-emerald-500" /> On Track
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-5 rounded-full bg-amber-500" /> Medium Risk
+          <span className="inline-block h-2 w-5 rounded-full bg-amber-500" /> In Transit
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-5 rounded-full bg-red-500" /> High Risk
+          <span className="inline-block h-2 w-5 rounded-full bg-red-500" /> Delayed/Failed
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" /> Issue Detected

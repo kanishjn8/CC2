@@ -1,42 +1,43 @@
 // ============================================================
 // Core TypeScript interfaces for RouteSense
-// Maps directly to the database schema + API contract
+// Maps directly to the backend API response schemas
 // ============================================================
 
 export type ShipmentStatus =
   | "created"
   | "dispatched"
   | "in_transit"
+  | "at_warehouse"
+  | "out_for_delivery"
   | "delivered"
   | "delayed"
-  | "at_risk";
+  | "failed";
 
-export type TrafficLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type TrafficLevel = "low" | "moderate" | "high" | "severe";
 
-export type ActionAuthorization = "autonomous" | "requires_approval";
-
-// ---- Core Entities ----
+// ---- Core Entities (match backend schemas exactly) ----
 
 export interface Shipment {
   shipment_id: string;
   origin: string;
   destination: string;
-  carrier_id: string;
-  eta: string;
-  sla_deadline: string;
+  carrier: string;          // carrier name (backend field)
+  route_id: string | null;
+  eta: string;              // ISO datetime
+  sla_deadline: string;     // ISO datetime
   status: ShipmentStatus;
-  delay_risk: number;
-  recommended_action: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface Warehouse {
   warehouse_id: string;
-  name: string;
   location: string;
   capacity: number;
   current_load: number;
   queue_length: number;
   congestion_score: number;
+  updated_at: string | null;
 }
 
 export interface Carrier {
@@ -45,6 +46,9 @@ export interface Carrier {
   reliability_score: number;
   delay_probability: number;
   pickup_success_rate: number;
+  total_shipments: number;
+  total_delays: number;
+  updated_at: string | null;
 }
 
 export interface Route {
@@ -54,68 +58,101 @@ export interface Route {
   distance: number;
   traffic_level: TrafficLevel;
   weather_factor: number;
+  updated_at: string | null;
 }
 
-// ---- Events & Decisions ----
+// ---- Events ----
 
 export interface SimulationEvent {
-  event_id: string;
+  id: number;
   event_type: string;
-  payload: Record<string, unknown>;
-  timestamp: string;
+  entity_id: string;
+  payload: string | null;
+  sim_time: number | null;
+  created_at: string | null;
 }
+
+// ---- Agent Decision Log (matches backend DecisionLogOut) ----
 
 export interface AgentDecision {
-  log_id: string;
-  shipment_id: string;
+  id: number;
+  decision_id: string;
+  risk_type: string;
+  entity_id: string;
+  shipment_id: string | null;
   risk_score: number;
   problem: string;
+  evidence: string | null;
   root_cause: string;
   confidence: number;
-  action_taken: string;
-  outcome: string;
-  sla_impact: string;
+  recommended_action: string;
+  action_details: string | null;
   requires_approval: boolean;
-  approved: boolean | null;
-  timestamp: string;
+  status: string;         // executed | pending_approval | approved | rejected
+  outcome: string;        // pending | success | failed | rejected
+  sla_impact: number | null;
+  created_at: string | null;
+  resolved_at: string | null;
 }
 
-// ---- Dashboard Aggregations ----
-
-export interface NetworkOverview {
-  total_shipments: number;
-  shipments_at_risk: number;
-  predicted_sla_breaches: number;
-  network_health_score: number;
-  active_carriers: number;
-  active_warehouses: number;
-  shipment_trend: TrendPoint[];
-  risk_distribution: RiskBucket[];
-}
-
-export interface TrendPoint {
-  time: string;
-  count: number;
-  at_risk: number;
-}
-
-export interface RiskBucket {
-  level: string;
-  count: number;
-  color: string;
-}
+// ---- Agent Metrics (matches backend AgentMetricsOut) ----
 
 export interface AgentMetrics {
+  total_decisions: number;
   intervention_success_rate: number;
   false_positive_rate: number;
-  prediction_accuracy: number;
+  average_confidence: number;
+  outcomes: Record<string, number>;
+  actions_breakdown: Record<string, number>;
+  risk_type_breakdown: Record<string, number>;
+}
+
+// ---- Agent Status (matches backend AgentStatusOut) ----
+
+export interface AgentStatus {
+  running: boolean;
+  cycle_count: number;
+  model_trained: boolean;
   total_decisions: number;
+  pending_approvals: number;
+}
+
+// ---- Simulation Status (matches backend SimStatusResponse) ----
+
+export interface SimulationStatus {
+  running: boolean;
+  sim_time: number;
+  total_events: number;
+  shipment_count: number;
+  warehouse_count: number;
+  carrier_count: number;
+  route_count: number;
 }
 
 // ---- API Response Wrappers ----
 
 export interface SimulationResponse {
-  success: boolean;
+  status: string;
   message: string;
   events_generated: number;
+  details?: Record<string, unknown> | null;
+}
+
+export interface ApprovalResponse {
+  status: string;
+  message: string;
+  decision_id: string;
+  result?: Record<string, unknown> | null;
+}
+
+export interface AgentSummary {
+  cycle_count: number;
+  summary: string;
+}
+
+export interface AgentAnalyzeResponse {
+  status: string;
+  message: string;
+  risks_detected: number;
+  risks: unknown[];
 }

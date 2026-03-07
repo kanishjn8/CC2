@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,25 +34,25 @@ export default function DecisionsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-  const handleApprove = async (logId: string) => {
-    setActionLoading(logId)
+  const handleApprove = async (decisionId: string) => {
+    setActionLoading(decisionId)
     try {
-      await api.approveAction(logId)
+      await api.approveDecision(decisionId)
       refetch()
     } catch {
-      // Silent fallback — mock mode
+      // error handling
     } finally {
       setActionLoading(null)
     }
   }
 
-  const handleReject = async (logId: string) => {
-    setActionLoading(logId)
+  const handleReject = async (decisionId: string) => {
+    setActionLoading(decisionId)
     try {
-      await api.rejectAction(logId)
+      await api.rejectDecision(decisionId)
       refetch()
     } catch {
-      // Silent fallback — mock mode
+      // error handling
     } finally {
       setActionLoading(null)
     }
@@ -66,7 +66,7 @@ export default function DecisionsPage() {
     )
   }
 
-  const pendingApproval = decisions.filter((d) => d.requires_approval && d.approved === null)
+  const pendingApproval = decisions.filter((d) => d.status === "pending_approval")
 
   function getOutcomeDisplay(outcome: string) {
     switch (outcome) {
@@ -97,7 +97,7 @@ export default function DecisionsPage() {
           </Badge>
         )}
         <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 px-3 py-1.5 text-sm">
-          Accuracy: {formatPercent(metrics.prediction_accuracy)}
+          Avg Confidence: {formatPercent(metrics.average_confidence)}
         </Badge>
       </div>
 
@@ -126,20 +126,22 @@ export default function DecisionsPage() {
             </TableHeader>
             <TableBody>
               {decisions.map((decision) => {
-                const isExpanded = expandedId === decision.log_id
+                const isExpanded = expandedId === decision.decision_id
                 const outcomeInfo = getOutcomeDisplay(decision.outcome)
                 const OutcomeIcon = outcomeInfo.icon
+                const isPending = decision.status === "pending_approval"
+                const isApproved = decision.status === "approved"
+                const isRejected = decision.status === "rejected"
 
                 return (
-                  <>
+                  <Fragment key={decision.decision_id}>
                     <TableRow
-                      key={decision.log_id}
                       className={cn(
                         "cursor-pointer transition-colors",
                         decision.risk_score >= 0.7 && "bg-red-500/5",
                         isExpanded && "bg-accent/50"
                       )}
-                      onClick={() => setExpandedId(isExpanded ? null : decision.log_id)}
+                      onClick={() => setExpandedId(isExpanded ? null : decision.decision_id)}
                     >
                       <TableCell className="p-2">
                         {isExpanded ? (
@@ -168,7 +170,7 @@ export default function DecisionsPage() {
                       </TableCell>
                       <TableCell className="max-w-[180px]">
                         <span className="text-xs text-primary line-clamp-1">
-                          {decision.action_taken}
+                          {decision.recommended_action}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -179,14 +181,14 @@ export default function DecisionsPage() {
                       </TableCell>
                       <TableCell>
                         {decision.requires_approval ? (
-                          decision.approved === null ? (
+                          isPending ? (
                             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
-                                disabled={actionLoading === decision.log_id}
-                                onClick={() => handleApprove(decision.log_id)}
+                                disabled={actionLoading === decision.decision_id}
+                                onClick={() => handleApprove(decision.decision_id)}
                               >
                                 <CheckCircle className="h-3.5 w-3.5" />
                               </Button>
@@ -194,21 +196,21 @@ export default function DecisionsPage() {
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                                disabled={actionLoading === decision.log_id}
-                                onClick={() => handleReject(decision.log_id)}
+                                disabled={actionLoading === decision.decision_id}
+                                onClick={() => handleReject(decision.decision_id)}
                               >
                                 <XCircle className="h-3.5 w-3.5" />
                               </Button>
                             </div>
                           ) : (
                             <Badge
-                              variant={decision.approved ? "outline" : "destructive"}
+                              variant={isApproved ? "outline" : "destructive"}
                               className={cn(
                                 "text-[10px]",
-                                decision.approved && "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                isApproved && "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
                               )}
                             >
-                              {decision.approved ? "Approved" : "Rejected"}
+                              {isApproved ? "Approved" : isRejected ? "Rejected" : decision.status}
                             </Badge>
                           )
                         ) : (
@@ -218,12 +220,12 @@ export default function DecisionsPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatTimeAgo(decision.timestamp)}
+                        {formatTimeAgo(decision.created_at || "")}
                       </TableCell>
                     </TableRow>
                     {/* Expanded Reasoning Row */}
                     {isExpanded && (
-                      <TableRow key={`${decision.log_id}-detail`} className="bg-accent/30">
+                      <TableRow key={`${decision.decision_id}-detail`} className="bg-accent/30">
                         <TableCell colSpan={9} className="p-4">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <ReasoningChain decision={decision} />
@@ -236,7 +238,7 @@ export default function DecisionsPage() {
                                   <p><span className="text-muted-foreground">Risk Score:</span> <span className={getRiskColor(decision.risk_score)}>{(decision.risk_score * 100).toFixed(1)}%</span></p>
                                   <p><span className="text-muted-foreground">Confidence:</span> <span className="text-foreground">{(decision.confidence * 100).toFixed(1)}%</span></p>
                                   <p><span className="text-muted-foreground">Authorization:</span> <span className="text-foreground">{decision.requires_approval ? "Requires Approval" : "Autonomous"}</span></p>
-                                  <p><span className="text-muted-foreground">SLA Impact:</span> <span className="text-primary">{decision.sla_impact}</span></p>
+                                  <p><span className="text-muted-foreground">SLA Impact:</span> <span className="text-primary">{decision.sla_impact != null ? `${decision.sla_impact} hrs` : "N/A"}</span></p>
                                 </div>
                               </div>
                             </div>
@@ -244,7 +246,7 @@ export default function DecisionsPage() {
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
+                  </Fragment>
                 )
               })}
             </TableBody>

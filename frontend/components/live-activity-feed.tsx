@@ -5,13 +5,9 @@ import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import {
   AlertTriangle,
-  ArrowRightLeft,
   Brain,
-  CheckCircle,
-  Radio,
   Truck,
   Warehouse,
-  Zap,
 } from "lucide-react"
 import { useShipments, useDecisions, useWarehouses } from "@/hooks/use-data"
 import type { LucideIcon } from "lucide-react"
@@ -33,30 +29,30 @@ function generateEvents(
 ): ActivityEvent[] {
   const events: ActivityEvent[] = []
 
-  // Generate events from at-risk/delayed shipments
+  // Generate events from delayed/failed shipments
   shipments
-    .filter((s) => s.delay_risk >= 0.7)
+    .filter((s) => s.status === "delayed" || s.status === "failed")
     .forEach((s) => {
       events.push({
         id: `alert-${s.shipment_id}`,
         icon: AlertTriangle,
         iconColor: "text-red-400",
-        message: `High risk detected: ${s.shipment_id}`,
-        detail: `${s.origin} → ${s.destination} | Risk: ${Math.round(s.delay_risk * 100)}%`,
-        timestamp: new Date(Date.now() - Math.random() * 600000),
+        message: `${s.status === "failed" ? "Failed" : "Delayed"}: ${s.shipment_id}`,
+        detail: `${s.origin} → ${s.destination} | Carrier: ${s.carrier}`,
+        timestamp: new Date(s.updated_at || Date.now()),
         type: "alert",
       })
     })
 
   // Generate events from agent decisions
-  decisions.slice(0, 4).forEach((d) => {
+  decisions.slice(0, 6).forEach((d) => {
     events.push({
-      id: `decision-${d.log_id}`,
+      id: `decision-${d.decision_id}`,
       icon: Brain,
       iconColor: "text-primary",
-      message: `Agent decision: ${d.action_taken}`,
-      detail: `${d.shipment_id} | Confidence: ${Math.round(d.confidence * 100)}%`,
-      timestamp: new Date(d.timestamp),
+      message: `Agent: ${d.recommended_action}`,
+      detail: `${d.entity_id} | Confidence: ${Math.round(d.confidence * 100)}%`,
+      timestamp: new Date(d.created_at || Date.now()),
       type: "action",
     })
   })
@@ -69,43 +65,28 @@ function generateEvents(
         id: `wh-${w.warehouse_id}`,
         icon: Warehouse,
         iconColor: "text-amber-400",
-        message: `Warehouse congestion: ${w.name}`,
+        message: `Warehouse congestion: ${w.location}`,
         detail: `Load: ${w.current_load}/${w.capacity} | Queue: ${w.queue_length}`,
-        timestamp: new Date(Date.now() - Math.random() * 300000),
+        timestamp: new Date(w.updated_at || Date.now()),
         type: "alert",
       })
     })
 
-  // Add some resolved actions
-  events.push({
-    id: "resolve-1",
-    icon: CheckCircle,
-    iconColor: "text-emerald-400",
-    message: "Shipment SHP-1005 on schedule",
-    detail: "Pune → Ahmedabad | Risk normalized to 22%",
-    timestamp: new Date(Date.now() - 180000),
-    type: "success",
-  })
-
-  events.push({
-    id: "reroute-1",
-    icon: ArrowRightLeft,
-    iconColor: "text-primary",
-    message: "Agent rerouted SHP-1006",
-    detail: "Now using Pune corridor to avoid Mumbai congestion",
-    timestamp: new Date(Date.now() - 120000),
-    type: "action",
-  })
-
-  events.push({
-    id: "carrier-watch",
-    icon: Truck,
-    iconColor: "text-amber-400",
-    message: "Carrier DTDC under monitoring",
-    detail: "Reliability: 44% | 3 shipments affected",
-    timestamp: new Date(Date.now() - 60000),
-    type: "alert",
-  })
+  // Generate events from shipments with SLA breach
+  shipments
+    .filter((s) => s.status !== "delivered" && new Date(s.eta) > new Date(s.sla_deadline))
+    .slice(0, 3)
+    .forEach((s) => {
+      events.push({
+        id: `sla-${s.shipment_id}`,
+        icon: Truck,
+        iconColor: "text-amber-400",
+        message: `SLA breach risk: ${s.shipment_id}`,
+        detail: `${s.origin} → ${s.destination} | ETA past deadline`,
+        timestamp: new Date(s.updated_at || Date.now()),
+        type: "alert",
+      })
+    })
 
   // Sort by timestamp descending
   events.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
@@ -127,34 +108,10 @@ export function LiveActivityFeed() {
   const [newEventId, setNewEventId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // Re-generate events when data changes
   useEffect(() => {
     setEvents(generateEvents(shipments, decisions, warehouses))
   }, [shipments, decisions, warehouses])
-
-  // Simulate new events arriving periodically
-  useEffect(() => {
-    const messages = [
-      { icon: Radio, iconColor: "text-primary", message: "Agent polling network signals...", detail: "Observation cycle #847", type: "info" as const },
-      { icon: Zap, iconColor: "text-primary", message: "Running risk inference pass", detail: "12 shipments evaluated", type: "info" as const },
-      { icon: Brain, iconColor: "text-purple-400", message: "Agent reasoning: evaluating carrier switch", detail: "SHP-1003 | Comparing BlueDart vs DTDC", type: "action" as const },
-      { icon: CheckCircle, iconColor: "text-emerald-400", message: "Risk threshold check passed", detail: "4 of 12 shipments within SLA", type: "success" as const },
-    ]
-
-    let idx = 0
-    const timer = setInterval(() => {
-      const template = messages[idx % messages.length]
-      const newEvent: ActivityEvent = {
-        ...template,
-        id: `live-${Date.now()}`,
-        timestamp: new Date(),
-      }
-      setEvents((prev) => [newEvent, ...prev].slice(0, 20))
-      setNewEventId(newEvent.id)
-      idx++
-    }, 8000)
-
-    return () => clearInterval(timer)
-  }, [])
 
   const typeBorderColor = {
     alert: "border-l-red-500/60",

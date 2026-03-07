@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select"
 import { Search, ArrowUpDown, AlertTriangle } from "lucide-react"
 import { useShipments } from "@/hooks/use-data"
-import { cn, getRiskColor, getRiskLabel, getRiskBg, formatTimestamp } from "@/lib/utils"
+import { cn, formatTimestamp } from "@/lib/utils"
 import type { Shipment, ShipmentStatus } from "@/lib/types"
 import { ShipmentDrawer } from "@/components/shipment-drawer"
 
@@ -30,19 +30,24 @@ const STATUS_LABELS: Record<ShipmentStatus, { label: string; variant: string }> 
   created: { label: "Created", variant: "outline" },
   dispatched: { label: "Dispatched", variant: "outline" },
   in_transit: { label: "In Transit", variant: "secondary" },
+  at_warehouse: { label: "At Warehouse", variant: "secondary" },
+  out_for_delivery: { label: "Out for Delivery", variant: "secondary" },
   delivered: { label: "Delivered", variant: "default" },
   delayed: { label: "Delayed", variant: "destructive" },
-  at_risk: { label: "At Risk", variant: "destructive" },
+  failed: { label: "Failed", variant: "destructive" },
 }
 
 export default function ShipmentsPage() {
   const { data: shipments, loading } = useShipments()
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [riskFilter, setRiskFilter] = useState<string>("all")
-  const [sortBy, setSortBy] = useState<"delay_risk" | "eta">("delay_risk")
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+  const [slaFilter, setSlaFilter] = useState<string>("all")
+  const [sortBy, setSortBy] = useState<"eta" | "sla_deadline">("eta")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
+
+  const isSlaBreaching = (s: Shipment) =>
+    s.status !== "delivered" && new Date(s.eta) > new Date(s.sla_deadline)
 
   const filtered = useMemo(() => {
     let result = [...shipments]
@@ -54,7 +59,7 @@ export default function ShipmentsPage() {
           s.shipment_id.toLowerCase().includes(q) ||
           s.origin.toLowerCase().includes(q) ||
           s.destination.toLowerCase().includes(q) ||
-          s.carrier_id.toLowerCase().includes(q)
+          s.carrier.toLowerCase().includes(q)
       )
     }
 
@@ -62,25 +67,24 @@ export default function ShipmentsPage() {
       result = result.filter((s) => s.status === statusFilter)
     }
 
-    if (riskFilter === "critical") result = result.filter((s) => s.delay_risk >= 0.7)
-    else if (riskFilter === "warning") result = result.filter((s) => s.delay_risk >= 0.4 && s.delay_risk < 0.7)
-    else if (riskFilter === "normal") result = result.filter((s) => s.delay_risk < 0.4)
+    if (slaFilter === "breaching") result = result.filter((s) => isSlaBreaching(s))
+    else if (slaFilter === "on_track") result = result.filter((s) => !isSlaBreaching(s))
 
     result.sort((a, b) => {
-      const valA = sortBy === "delay_risk" ? a.delay_risk : new Date(a.eta).getTime()
-      const valB = sortBy === "delay_risk" ? b.delay_risk : new Date(b.eta).getTime()
+      const valA = new Date(sortBy === "eta" ? a.eta : a.sla_deadline).getTime()
+      const valB = new Date(sortBy === "eta" ? b.eta : b.sla_deadline).getTime()
       return sortDir === "desc" ? valB - valA : valA - valB
     })
 
     return result
-  }, [shipments, searchQuery, statusFilter, riskFilter, sortBy, sortDir])
+  }, [shipments, searchQuery, statusFilter, slaFilter, sortBy, sortDir])
 
-  const toggleSort = (field: "delay_risk" | "eta") => {
+  const toggleSort = (field: "eta" | "sla_deadline") => {
     if (sortBy === field) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"))
     } else {
       setSortBy(field)
-      setSortDir("desc")
+      setSortDir("asc")
     }
   }
 
@@ -92,8 +96,8 @@ export default function ShipmentsPage() {
     )
   }
 
-  const criticalCount = shipments.filter((s) => s.delay_risk >= 0.7).length
-  const warningCount = shipments.filter((s) => s.delay_risk >= 0.4 && s.delay_risk < 0.7).length
+  const delayedCount = shipments.filter((s) => s.status === "delayed" || s.status === "failed").length
+  const breachingCount = shipments.filter((s) => isSlaBreaching(s)).length
 
   return (
     <div className="space-y-6">
@@ -102,13 +106,17 @@ export default function ShipmentsPage() {
         <Badge variant="outline" className="bg-card px-3 py-1.5 text-sm">
           Total: {shipments.length}
         </Badge>
-        <Badge variant="destructive" className="px-3 py-1.5 text-sm">
-          <AlertTriangle className="h-3 w-3 mr-1" />
-          Critical: {criticalCount}
-        </Badge>
-        <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 px-3 py-1.5 text-sm">
-          Warning: {warningCount}
-        </Badge>
+        {delayedCount > 0 && (
+          <Badge variant="destructive" className="px-3 py-1.5 text-sm">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            Delayed/Failed: {delayedCount}
+          </Badge>
+        )}
+        {breachingCount > 0 && (
+          <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 px-3 py-1.5 text-sm">
+            SLA Breaching: {breachingCount}
+          </Badge>
+        )}
       </div>
 
       {/* Filters */}
@@ -137,15 +145,14 @@ export default function ShipmentsPage() {
                 <SelectItem value="delivered">Delivered</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={riskFilter} onValueChange={setRiskFilter}>
+            <Select value={slaFilter} onValueChange={setSlaFilter}>
               <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Risk Level" />
+                <SelectValue placeholder="SLA Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Risk Levels</SelectItem>
-                <SelectItem value="critical">Critical (&ge;70%)</SelectItem>
-                <SelectItem value="warning">Warning (40-70%)</SelectItem>
-                <SelectItem value="normal">Normal (&lt;40%)</SelectItem>
+                <SelectItem value="all">All SLA Status</SelectItem>
+                <SelectItem value="breaching">SLA Breaching</SelectItem>
+                <SelectItem value="on_track">On Track</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -174,23 +181,24 @@ export default function ShipmentsPage() {
                   </Button>
                 </TableHead>
                 <TableHead>
-                  Delay Risk
-                  <Button variant="ghost" size="sm" className="ml-1 h-6 w-6 p-0" onClick={() => toggleSort("delay_risk")}>
+                  SLA Deadline
+                  <Button variant="ghost" size="sm" className="ml-1 h-6 w-6 p-0" onClick={() => toggleSort("sla_deadline")}>
                     <ArrowUpDown className="h-3 w-3" />
                   </Button>
                 </TableHead>
-                <TableHead>Recommended Action</TableHead>
+                <TableHead>SLA Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((shipment) => {
                 const statusInfo = STATUS_LABELS[shipment.status]
+                const breaching = isSlaBreaching(shipment)
                 return (
                   <TableRow
                     key={shipment.shipment_id}
                     className={cn(
                       "cursor-pointer transition-colors hover:bg-accent/50",
-                      shipment.delay_risk >= 0.7 && "bg-red-500/5"
+                      breaching && "bg-red-500/5"
                     )}
                     onClick={() => setSelectedShipment(shipment)}
                   >
@@ -199,41 +207,35 @@ export default function ShipmentsPage() {
                     </TableCell>
                     <TableCell>{shipment.origin}</TableCell>
                     <TableCell>{shipment.destination}</TableCell>
-                    <TableCell className="text-muted-foreground">{shipment.carrier_id}</TableCell>
+                    <TableCell className="text-muted-foreground">{shipment.carrier}</TableCell>
                     <TableCell>
                       <Badge
-                        variant={statusInfo.variant as "default" | "outline" | "secondary" | "destructive"}
+                        variant={statusInfo?.variant as "default" | "outline" | "secondary" | "destructive" ?? "outline"}
                         className="text-xs"
                       >
-                        {statusInfo.label}
+                        {statusInfo?.label || shipment.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {formatTimestamp(shipment.eta)}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={cn(
-                            "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold",
-                            getRiskBg(shipment.delay_risk),
-                            getRiskColor(shipment.delay_risk)
-                          )}
-                        >
-                          {(shipment.delay_risk * 100).toFixed(0)}%
-                        </div>
-                        <span className={cn("text-[10px]", getRiskColor(shipment.delay_risk))}>
-                          {getRiskLabel(shipment.delay_risk)}
-                        </span>
-                      </div>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {formatTimestamp(shipment.sla_deadline)}
                     </TableCell>
-                    <TableCell className="max-w-[200px]">
-                      {shipment.recommended_action ? (
-                        <span className="text-xs text-primary">
-                          {shipment.recommended_action}
-                        </span>
+                    <TableCell>
+                      {shipment.status === "delivered" ? (
+                        <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                          Delivered
+                        </Badge>
+                      ) : breaching ? (
+                        <Badge variant="destructive" className="text-[10px]">
+                          <AlertTriangle className="h-2.5 w-2.5 mr-1" />
+                          Breaching
+                        </Badge>
                       ) : (
-                        <span className="text-xs text-muted-foreground/50">—</span>
+                        <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                          On Track
+                        </Badge>
                       )}
                     </TableCell>
                   </TableRow>
