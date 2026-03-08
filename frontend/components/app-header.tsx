@@ -2,8 +2,7 @@
 
 import React from "react"
 import { usePathname } from "next/navigation"
-import { Bell, RefreshCw, Search } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Search } from "lucide-react"
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "Network Overview",
@@ -38,18 +37,6 @@ export function AppHeader() {
             ⌘K
           </kbd>
         </button>
-        <Button variant="ghost" size="icon" title="Refresh data">
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon" className="relative" title="Notifications">
-          <Bell className="h-4 w-4" />
-          <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
-            3
-          </span>
-        </Button>
-        <div className="ml-2 h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
-          OP
-        </div>
       </div>
     </header>
   )
