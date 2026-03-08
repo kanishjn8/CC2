@@ -30,6 +30,21 @@ router = APIRouter(prefix="/agent", tags=["AI Agent"])
 log = logging.getLogger("cc2.agent_api")
 
 
+# ── Graph info ───────────────────────────────────────────────────────────────
+
+@router.get("/graph-info")
+def graph_info():
+    """Return LangGraph pipeline metadata."""
+    graph = agent_loop._graph
+    nodes = list(graph.nodes.keys()) if graph else []
+    return {
+        "engine": "langgraph",
+        "nodes": nodes,
+        "compiled": graph is not None,
+        "cycle_count": agent_loop.cycle_count,
+    }
+
+
 # ── Decision log ─────────────────────────────────────────────────────────────
 
 @router.get("/decisions", response_model=list[DecisionLogOut])
