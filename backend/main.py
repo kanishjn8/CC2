@@ -42,18 +42,29 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 log = logging.getLogger("cc2.main")
 
 
-def _wait_for_db(retries: int = 15, delay: float = 2.0):
+def _wait_for_db(retries: int = 10, delay: float = 3.0):
     """Block until PostgreSQL accepts connections. Works in Docker and locally."""
+    import app.config as cfg
+    # Log the host being used (mask password) to help diagnose connection issues
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(cfg.DATABASE_URL)
+        log.info("🔌 Connecting to DB host: %s:%s/%s", parsed.hostname, parsed.port, parsed.path.lstrip("/"))
+    except Exception:
+        pass
+
+    last_error = None
     for attempt in range(1, retries + 1):
         try:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             log.info("✅ Database is ready.")
             return
-        except OperationalError:
-            log.warning("⏳ Waiting for database… (attempt %d/%d)", attempt, retries)
+        except OperationalError as e:
+            last_error = e
+            log.warning("⏳ Waiting for database… (attempt %d/%d): %s", attempt, retries, str(e)[:120])
             time.sleep(delay)
-    raise RuntimeError("Could not connect to the database after multiple retries.")
+    raise RuntimeError(f"Could not connect to the database after {retries} retries. Last error: {last_error}")
 
 
 @asynccontextmanager
