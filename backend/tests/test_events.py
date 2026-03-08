@@ -322,7 +322,7 @@ class TestPickupFailureEvent:
         make_shipment(db, carrier, status=ShipmentStatus.in_transit)
         db.commit()
 
-        with patch("app.simulation.random.random", return_value=0.11):
+        with patch("app.simulation.random.random", return_value=0.15):
             sim._random_disruption(db)
 
         ev = latest(db, EventType.pickup_failure)
@@ -334,7 +334,7 @@ class TestPickupFailureEvent:
         db.commit()
 
         for _ in range(30):
-            with patch("app.simulation.random.random", return_value=0.11):
+            with patch("app.simulation.random.random", return_value=0.15):
                 sim._random_disruption(db)
 
         assert carrier.pickup_success_rate >= 0.5
@@ -350,7 +350,7 @@ class TestCarrierDelayEvent:
         make_carrier(db, reliability=0.9)
         db.commit()
 
-        with patch("app.simulation.random.random", return_value=0.16):
+        with patch("app.simulation.random.random", return_value=0.22):
             sim._random_disruption(db)
 
         ev = latest(db, EventType.carrier_delay_event)
@@ -364,7 +364,7 @@ class TestCarrierDelayEvent:
         db.commit()
 
         for _ in range(30):
-            with patch("app.simulation.random.random", return_value=0.16):
+            with patch("app.simulation.random.random", return_value=0.22):
                 sim._random_disruption(db)
 
         assert carrier.delay_probability <= 0.6

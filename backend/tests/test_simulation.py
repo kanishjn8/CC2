@@ -373,7 +373,7 @@ class TestRandomDisruptions:
 
         original_rate = carrier.pickup_success_rate
 
-        with patch("app.simulation.random.random", return_value=0.11):
+        with patch("app.simulation.random.random", return_value=0.15):
             sim._random_disruption(db)
 
         assert carrier.pickup_success_rate < original_rate
@@ -383,7 +383,7 @@ class TestRandomDisruptions:
         db.commit()
         original_reliability = carrier.reliability_score
 
-        with patch("app.simulation.random.random", return_value=0.16):
+        with patch("app.simulation.random.random", return_value=0.22):
             sim._random_disruption(db)
 
         assert carrier.reliability_score < original_reliability
@@ -393,7 +393,7 @@ class TestRandomDisruptions:
         db.commit()
         original_prob = carrier.delay_probability
 
-        with patch("app.simulation.random.random", return_value=0.16):
+        with patch("app.simulation.random.random", return_value=0.22):
             sim._random_disruption(db)
 
         assert carrier.delay_probability > original_prob
