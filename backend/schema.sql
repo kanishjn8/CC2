@@ -67,11 +67,14 @@ CREATE TABLE IF NOT EXISTS shipments (
     current_location GEOMETRY(Point, 4326),            -- live shipment position (WGS84)
     origin_point     GEOMETRY(Point, 4326),            -- origin coordinates
     destination_point GEOMETRY(Point, 4326),           -- destination coordinates
+    is_active       BOOLEAN         NOT NULL DEFAULT TRUE,
+    delivered_at    TIMESTAMP,
     created_at      TIMESTAMP       NOT NULL DEFAULT now(),
     updated_at      TIMESTAMP       NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS ix_shipments_shipment_id ON shipments (shipment_id);
+CREATE INDEX IF NOT EXISTS ix_shipments_is_active ON shipments (is_active);
 CREATE INDEX IF NOT EXISTS ix_shipments_current_location ON shipments USING GIST (current_location);
 CREATE INDEX IF NOT EXISTS ix_shipments_origin_point ON shipments USING GIST (origin_point);
 CREATE INDEX IF NOT EXISTS ix_shipments_destination_point ON shipments USING GIST (destination_point);

@@ -29,6 +29,9 @@ function generateEvents(
 ): ActivityEvent[] {
   const events: ActivityEvent[] = []
 
+  const toUtcDate = (ts: string | null | undefined): Date =>
+    ts ? new Date(ts.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(ts) ? ts : ts + "Z") : new Date()
+
   // Generate events from delayed/failed shipments
   shipments
     .filter((s) => s.status === "delayed" || s.status === "failed")
@@ -38,8 +41,8 @@ function generateEvents(
         icon: AlertTriangle,
         iconColor: "text-red-400",
         message: `${s.status === "failed" ? "Failed" : "Delayed"}: ${s.shipment_id}`,
-        detail: `${s.origin} → ${s.destination} | Carrier: ${s.carrier}`,
-        timestamp: new Date(s.updated_at || Date.now()),
+        detail: `${s.origin} → ${s.destination} | Carrier: ${s.carrier_name || s.carrier}`,
+        timestamp: toUtcDate(s.updated_at),
         type: "alert",
       })
     })
@@ -52,7 +55,7 @@ function generateEvents(
       iconColor: "text-primary",
       message: `Agent: ${d.recommended_action}`,
       detail: `${d.entity_id} | Confidence: ${Math.round(d.confidence * 100)}%`,
-      timestamp: new Date(d.created_at || Date.now()),
+      timestamp: toUtcDate(d.created_at),
       type: "action",
     })
   })
@@ -67,7 +70,7 @@ function generateEvents(
         iconColor: "text-amber-400",
         message: `Warehouse congestion: ${w.location}`,
         detail: `Load: ${w.current_load}/${w.capacity} | Queue: ${w.queue_length}`,
-        timestamp: new Date(w.updated_at || Date.now()),
+        timestamp: toUtcDate(w.updated_at),
         type: "alert",
       })
     })
@@ -83,7 +86,7 @@ function generateEvents(
         iconColor: "text-amber-400",
         message: `SLA breach risk: ${s.shipment_id}`,
         detail: `${s.origin} → ${s.destination} | ETA past deadline`,
-        timestamp: new Date(s.updated_at || Date.now()),
+        timestamp: new Date(s.updated_at ? (s.updated_at.endsWith("Z") ? s.updated_at : s.updated_at + "Z") : Date.now()),
         type: "alert",
       })
     })

@@ -154,7 +154,7 @@ export function ShipmentDrawer({ shipment, open, onClose }: ShipmentDrawerProps)
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-accent/50 p-3">
               <p className="text-[10px] text-muted-foreground uppercase mb-1">Carrier</p>
-              <p className="text-sm font-semibold text-foreground">{shipment.carrier}</p>
+              <p className="text-sm font-semibold text-foreground">{shipment.carrier_name || shipment.carrier}</p>
             </div>
             <div className="rounded-lg bg-accent/50 p-3">
               <p className="text-[10px] text-muted-foreground uppercase mb-1">Status</p>

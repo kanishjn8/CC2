@@ -1,0 +1,10 @@
+# ── Project root ─────────────────────────────────────────────────────────────
+# This file is intentionally minimal. The real project configuration lives at:
+#   backend/pyproject.toml  ← FastAPI backend (all deps, uv, pytest config)
+#   frontend/package.json   ← Next.js frontend (npm)
+#
+# To run the backend locally:
+#   cd backend && uv sync && uv run uvicorn main:app --reload
+#
+# To run the frontend locally:
+#   cd frontend && npm install && npm run dev

@@ -10,7 +10,7 @@ import {
   ZoomableGroup,
 } from "react-simple-maps"
 import { geoCentroid } from "d3-geo"
-import type { Shipment, RerouteResult } from "@/lib/types"
+import type { Shipment, RerouteResult, CarrierSwitchResult } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 // ── Data Sources ──────────────────────────────────────────────────────────────
@@ -258,9 +258,10 @@ function isNearIndia(coords: [number, number]): boolean {
 interface ShipmentMapProps {
   shipments: Shipment[]
   rerouteData?: RerouteResult | null
+  carrierSwitchData?: CarrierSwitchResult | null
 }
 
-function ShipmentMapInner({ shipments, rerouteData }: ShipmentMapProps) {
+function ShipmentMapInner({ shipments, rerouteData, carrierSwitchData }: ShipmentMapProps) {
   const [hoveredShipment, setHoveredShipment] = useState<Shipment | null>(null)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
   const [position, setPosition] = useState<{ coordinates: [number, number]; zoom: number }>({
@@ -637,6 +638,96 @@ function ShipmentMapInner({ shipments, rerouteData }: ShipmentMapProps) {
             </>
           )}
 
+          {/* Layer 6c: Carrier switch visualization — highlight route with carrier info */}
+          {carrierSwitchData?.route_geometry?.coordinates && carrierSwitchData.route_geometry.coordinates.length >= 2 && (
+            <>
+              {/* Glow effect behind the route */}
+              {carrierSwitchData.route_geometry.coordinates.slice(0, -1).map((coord, i) => {
+                const next = carrierSwitchData.route_geometry!.coordinates[i + 1]
+                return (
+                  <Line
+                    key={`cs-glow-${i}`}
+                    from={coord as [number, number]}
+                    to={next as [number, number]}
+                    stroke="#a855f7"
+                    strokeWidth={6 * inv}
+                    strokeLinecap="round"
+                    style={{ opacity: 0.15 }}
+                  />
+                )
+              })}
+              {/* Main highlighted route line */}
+              {carrierSwitchData.route_geometry.coordinates.slice(0, -1).map((coord, i) => {
+                const next = carrierSwitchData.route_geometry!.coordinates[i + 1]
+                return (
+                  <Line
+                    key={`cs-route-${i}`}
+                    from={coord as [number, number]}
+                    to={next as [number, number]}
+                    stroke="#a855f7"
+                    strokeWidth={3 * inv}
+                    strokeLinecap="round"
+                    style={{ opacity: 0.9 }}
+                    className="animate-dash"
+                  />
+                )
+              })}
+              {/* Origin marker with carrier change label */}
+              <Marker coordinates={carrierSwitchData.route_geometry.coordinates[0] as [number, number]}>
+                <circle r={5 * inv} fill="#a855f7" stroke="#7c3aed" strokeWidth={1.5 * inv} />
+                {/* Pulsing ring */}
+                <circle r={8 * inv} fill="none" stroke="#a855f7" strokeWidth={1 * inv} opacity={0.4}>
+                  <animate attributeName="r" from={`${5 * inv}`} to={`${14 * inv}`} dur="2s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" />
+                </circle>
+                <text
+                  textAnchor="middle"
+                  y={-(8 * inv)}
+                  style={{ fontSize: `${5 * inv}px`, fill: "#a855f7", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
+                >
+                  {carrierSwitchData.origin || "Origin"}
+                </text>
+              </Marker>
+              {/* Destination marker */}
+              <Marker coordinates={carrierSwitchData.route_geometry.coordinates[carrierSwitchData.route_geometry.coordinates.length - 1] as [number, number]}>
+                <circle r={5 * inv} fill="#a855f7" stroke="#7c3aed" strokeWidth={1.5 * inv} />
+                <text
+                  textAnchor="middle"
+                  y={-(8 * inv)}
+                  style={{ fontSize: `${5 * inv}px`, fill: "#a855f7", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
+                >
+                  {carrierSwitchData.destination || "Dest"}
+                </text>
+              </Marker>
+              {/* Carrier change label at midpoint */}
+              {(() => {
+                const coords = carrierSwitchData.route_geometry!.coordinates
+                const mid = coords[Math.floor(coords.length / 2)] as [number, number]
+                return (
+                  <Marker coordinates={mid}>
+                    <rect
+                      x={-35 * inv}
+                      y={-16 * inv}
+                      width={70 * inv}
+                      height={14 * inv}
+                      rx={3 * inv}
+                      fill="rgba(10, 10, 12, 0.9)"
+                      stroke="#a855f7"
+                      strokeWidth={0.8 * inv}
+                    />
+                    <text
+                      textAnchor="middle"
+                      y={-(6 * inv)}
+                      style={{ fontSize: `${3.5 * inv}px`, fill: "#c084fc", fontWeight: 600, fontFamily: "Inter, sans-serif" }}
+                    >
+                      🔄 {carrierSwitchData.old_carrier_name || carrierSwitchData.old_carrier} → {carrierSwitchData.new_carrier_name || carrierSwitchData.new_carrier}
+                    </text>
+                  </Marker>
+                )
+              })()}
+            </>
+          )}
+
           {/* Layer 7: Shipment city markers (always visible) */}
           {activeCities.map((city) => {
             const hasIssue = shipments.some(
@@ -743,6 +834,11 @@ function ShipmentMapInner({ shipments, rerouteData }: ShipmentMapProps) {
         {rerouteData && (
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-2 w-5 rounded-full bg-cyan-400" /> Rerouted
+          </span>
+        )}
+        {carrierSwitchData && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-5 rounded-full bg-purple-500" /> Carrier Switch
           </span>
         )}
       </div>

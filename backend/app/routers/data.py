@@ -19,18 +19,40 @@ from app.schemas import ShipmentOut, WarehouseOut, CarrierOut, RouteOut, EventOu
 router = APIRouter(tags=["Data"])
 
 
+def _attach_carrier_names(shipments: list[Shipment], db: Session) -> list[ShipmentOut]:
+    """Join carrier names onto shipments in a single extra query."""
+    carrier_ids = {s.carrier for s in shipments}
+    carriers = (
+        db.query(CarrierPerformance)
+        .filter(CarrierPerformance.carrier_id.in_(carrier_ids))
+        .all()
+    ) if carrier_ids else []
+    name_map = {c.carrier_id: c.name for c in carriers}
+
+    results = []
+    for ship in shipments:
+        out = ShipmentOut.model_validate(ship)
+        out.carrier_name = name_map.get(ship.carrier)
+        results.append(out)
+    return results
+
+
 # ── Shipments ────────────────────────────────────────────────────────────────
 
 @router.get("/shipments", response_model=list[ShipmentOut])
 def list_shipments(
     status: Optional[ShipmentStatus] = None,
-    limit: int = Query(50, ge=1, le=500),
+    include_inactive: bool = Query(False, description="Include delivered/pruned shipments"),
+    limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     q = db.query(Shipment)
+    if not include_inactive:
+        q = q.filter(Shipment.is_active.is_(True))
     if status:
         q = q.filter(Shipment.status == status)
-    return q.order_by(Shipment.id.desc()).limit(limit).all()
+    shipments = q.order_by(Shipment.id.desc()).limit(limit).all()
+    return _attach_carrier_names(shipments, db)
 
 
 @router.get("/shipments/{shipment_id}", response_model=ShipmentOut)
@@ -38,7 +60,7 @@ def get_shipment(shipment_id: str, db: Session = Depends(get_db)):
     ship = db.query(Shipment).filter_by(shipment_id=shipment_id).first()
     if ship is None:
         raise HTTPException(status_code=404, detail=f"Shipment '{shipment_id}' not found")
-    return ship
+    return _attach_carrier_names([ship], db)[0]
 
 
 # ── Warehouses ───────────────────────────────────────────────────────────────

@@ -24,7 +24,7 @@ export function AlertNotifications() {
           firedRef.current.add(key)
           toast({
             title: `⚠️ ${s.status === "failed" ? "Failed" : "Delayed"}: ${s.shipment_id}`,
-            description: `${s.origin} → ${s.destination} | Carrier: ${s.carrier}`,
+            description: `${s.origin} → ${s.destination} | Carrier: ${s.carrier_name || s.carrier}`,
             variant: "destructive",
           })
         }

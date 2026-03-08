@@ -79,11 +79,9 @@ def call_llm(
     elapsed = now - _last_call_time
     if elapsed < cooldown:
         remaining = cooldown - elapsed
-        log.info(
-            "🤖 %sLLM COOLDOWN — skipping (%.0fs / %.0fs remaining) "
-            "[total: %d calls, %d skipped, %d failed]",
-            caller_tag, remaining, cooldown,
-            _total_calls, _total_skipped, _total_failures,
+        log.debug(
+            "🤖 %sLLM COOLDOWN — skipping (%.0fs remaining)",
+            caller_tag, remaining,
         )
         _total_skipped += 1
         return None
@@ -94,8 +92,8 @@ def call_llm(
         _total_skipped += 1
         return None
 
-    prompt_preview = prompt[:120].replace("\n", " ")
-    log.info("🤖 %sLLM CALLING — prompt: %s…", caller_tag, prompt_preview)
+    prompt_preview = prompt[:80].replace("\n", " ")
+    log.info("🤖 %sLLM CALL — %s…", caller_tag, prompt_preview)
 
     for model_name in [primary, fallback]:
         if not model_name:
@@ -117,10 +115,8 @@ def call_llm(
                 _total_calls += 1
                 text = response.text.strip()
                 log.info(
-                    "🤖 %sLLM ✅ SUCCESS — model=%s  time=%.1fs  len=%d  "
-                    "[total: %d calls, %d skipped]",
+                    "🤖 %sLLM ✅ model=%s  %.1fs  %d chars",
                     caller_tag, model_name, duration, len(text),
-                    _total_calls, _total_skipped,
                 )
                 log.debug("🤖 %sLLM RESPONSE: %s", caller_tag, text[:300])
                 return text

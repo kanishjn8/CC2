@@ -14,6 +14,7 @@ import {
   Radio,
   X,
   Navigation,
+  RefreshCw,
 } from "lucide-react"
 import {
   BarChart,
@@ -51,7 +52,7 @@ export default function OverviewPage() {
   const { data: carriers } = useCarriers()
   const { data: metrics } = useAgentMetrics()
   const { data: simStatus } = useSimulationStatus()
-  const { rerouteData, clearReroute } = useRerouteContext()
+  const { rerouteData, clearReroute, carrierSwitchData, clearCarrierSwitch } = useRerouteContext()
 
   // Compute overview stats from real data
   const overview = useMemo(() => {
@@ -220,6 +221,15 @@ export default function OverviewPage() {
                   </button>
                 </Badge>
               )}
+              {carrierSwitchData && (
+                <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 gap-1">
+                  <RefreshCw className="h-3 w-3" />
+                  Carrier Switch Active
+                  <button onClick={clearCarrierSwitch} className="ml-1 hover:text-purple-200">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
               <Badge variant="outline" className="text-[10px] gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 {shipments.filter((s) => s.status === "in_transit").length} active routes
@@ -253,7 +263,35 @@ export default function OverviewPage() {
               </Button>
             </div>
           )}
-          <ShipmentMap shipments={shipments} rerouteData={rerouteData} />
+          {/* Carrier switch info banner */}
+          {carrierSwitchData && (
+            <div className="mx-4 mb-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-3 text-xs">
+                <RefreshCw className="h-4 w-4 text-purple-400 shrink-0" />
+                <div>
+                  <span className="text-purple-400 font-semibold">Carrier Switch Visualization Active</span>
+                  <span className="text-muted-foreground ml-2">
+                    {carrierSwitchData.shipment_id}: {carrierSwitchData.old_carrier_name || carrierSwitchData.old_carrier} → {carrierSwitchData.new_carrier_name || carrierSwitchData.new_carrier}
+                  </span>
+                  <span className="text-emerald-400 ml-2">
+                    Reliability {((carrierSwitchData.old_carrier_reliability) * 100).toFixed(0)}% → {((carrierSwitchData.new_carrier_reliability) * 100).toFixed(0)}%
+                  </span>
+                  <span className="text-emerald-400 ml-2">
+                    · ETA improved by {carrierSwitchData.eta_improvement_hours.toFixed(1)}h
+                  </span>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-muted-foreground hover:text-foreground"
+                onClick={clearCarrierSwitch}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
+          <ShipmentMap shipments={shipments} rerouteData={rerouteData} carrierSwitchData={carrierSwitchData} />
         </CardContent>
       </Card>
 

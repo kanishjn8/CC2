@@ -21,12 +21,13 @@ from app.routers import data, simulate
 from app.routers.geo import router as geo_router
 from app.routers.agent import router as agent_router
 from app.routers.actions import router as actions_router
-from app.config import SEED_WAREHOUSES, SEED_CARRIERS, SEED_ROUTES, SEED_SHIPMENTS
+from app.config import SEED_WAREHOUSES, SEED_CARRIERS, SEED_ROUTES, SEED_SHIPMENTS, ALLOWED_ORIGINS
 from app.ai_agent import agent_loop
+from app.lifecycle import lifecycle_manager
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
     datefmt="%H:%M:%S",
 )
@@ -91,6 +92,9 @@ async def lifespan(app: FastAPI):
     agent_loop.start()
     log.info("✅ AI Agent loop started.")
 
+    lifecycle_manager.start()
+    log.info("✅ Shipment lifecycle manager started.")
+
     log.info("=" * 60)
     log.info("CC2 is ready — docs at http://localhost:8000/docs")
     log.info("=" * 60)
@@ -99,9 +103,10 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ─────────────────────────────────────────────────────────
     log.info("Shutting down…")
+    lifecycle_manager.stop()
     simulation.stop()
     agent_loop.stop()
-    log.info("✅ Simulation engine and AI Agent stopped.")
+    log.info("✅ All background services stopped.")
 
 
 app = FastAPI(
@@ -116,7 +121,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

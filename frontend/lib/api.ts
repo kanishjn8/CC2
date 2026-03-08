@@ -13,6 +13,7 @@ import type {
   AgentSummary,
   AgentAnalyzeResponse,
   RerouteResult,
+  CarrierSwitchResult,
   SendAlertResult,
   LlmStats,
 } from "./types";
@@ -199,6 +200,16 @@ class ApiClient {
 
   rerouteShipment(shipmentId: string, reason?: string): Promise<RerouteResult> {
     return this.request<RerouteResult>("/api/actions/reroute", {
+      method: "POST",
+      body: JSON.stringify({
+        shipment_id: shipmentId,
+        reason: reason ?? "",
+      }),
+    });
+  }
+
+  switchCarrier(shipmentId: string, reason?: string): Promise<CarrierSwitchResult> {
+    return this.request<CarrierSwitchResult>("/api/actions/switch-carrier", {
       method: "POST",
       body: JSON.stringify({
         shipment_id: shipmentId,

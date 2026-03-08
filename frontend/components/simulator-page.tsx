@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,26 +12,12 @@ import {
   AlertTriangle,
   CheckCircle,
   Loader2,
+  FlaskConical,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { api } from "@/lib/api"
 import type { LucideIcon } from "lucide-react"
 import type { SimulationResponse } from "@/lib/types"
-
-// Mock trigger — returns a fake success response after a short delay
-function mockTrigger(title: string): () => Promise<SimulationResponse> {
-  return () =>
-    new Promise((resolve) =>
-      setTimeout(
-        () =>
-          resolve({
-            status: "ok",
-            message: `${title} scenario triggered successfully (mock).`,
-            events_generated: Math.floor(Math.random() * 8) + 3,
-          }),
-        800
-      )
-    )
-}
 
 interface ScenarioConfig {
   id: string
@@ -48,6 +34,25 @@ interface ScenarioConfig {
 export default function SimulatorPage() {
   const [results, setResults] = useState<Record<string, SimulationResponse | null>>({})
   const [loadingId, setLoadingId] = useState<string | null>(null)
+  const [simBanner, setSimBanner] = useState<{ title: string; color: string } | null>(null)
+  const [bannerFading, setBannerFading] = useState(false)
+
+  // Show a temporary simulation state banner, then fade it out
+  const showSimBanner = useCallback((title: string, color: string) => {
+    setBannerFading(false)
+    setSimBanner({ title, color })
+    // Start fade-out after 8 seconds
+    const fadeTimer = setTimeout(() => setBannerFading(true), 8000)
+    // Remove completely after fade animation (1s)
+    const removeTimer = setTimeout(() => {
+      setSimBanner(null)
+      setBannerFading(false)
+    }, 9000)
+    return () => {
+      clearTimeout(fadeTimer)
+      clearTimeout(removeTimer)
+    }
+  }, [])
 
   const scenarios: ScenarioConfig[] = [
     {
@@ -60,7 +65,7 @@ export default function SimulatorPage() {
       color: "text-amber-400",
       borderColor: "border-amber-500/30",
       bgColor: "bg-amber-500/10",
-      trigger: mockTrigger("Warehouse Congestion"),
+      trigger: () => api.simulateWarehouseCongestion(),
     },
     {
       id: "carrier",
@@ -72,7 +77,7 @@ export default function SimulatorPage() {
       color: "text-red-400",
       borderColor: "border-red-500/30",
       bgColor: "bg-red-500/10",
-      trigger: mockTrigger("Carrier Failure"),
+      trigger: () => api.simulateCarrierFailure(),
     },
     {
       id: "traffic",
@@ -84,7 +89,7 @@ export default function SimulatorPage() {
       color: "text-purple-400",
       borderColor: "border-purple-500/30",
       bgColor: "bg-purple-500/10",
-      trigger: mockTrigger("Traffic Spike"),
+      trigger: () => api.simulateTrafficSpike(),
     },
   ]
 
@@ -95,6 +100,9 @@ export default function SimulatorPage() {
     try {
       const result = await scenario.trigger()
       setResults((prev) => ({ ...prev, [scenario.id]: result }))
+      if (result.status !== "error") {
+        showSimBanner(scenario.title, scenario.color)
+      }
     } catch {
       setResults((prev) => ({
         ...prev,
@@ -111,6 +119,32 @@ export default function SimulatorPage() {
 
   return (
     <div className="space-y-6">
+      {/* Temporary simulation state banner */}
+      {simBanner && (
+        <div
+          className={cn(
+            "rounded-lg border px-4 py-3 flex items-center gap-3 transition-all duration-1000",
+            "bg-amber-500/10 border-amber-500/30",
+            bannerFading ? "opacity-0 translate-y-[-8px]" : "opacity-100 translate-y-0 animate-in slide-in-from-top-2 fade-in duration-500"
+          )}
+        >
+          <div className="p-1.5 rounded-md bg-amber-500/20 border border-amber-500/30">
+            <FlaskConical className="h-4 w-4 text-amber-400 animate-pulse" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-400">
+              ⚡ Simulated Event: {simBanner.title}
+            </p>
+            <p className="text-xs text-amber-400/70">
+              Temporary simulation state — does not reflect actual live conditions. Data will return to live state shortly.
+            </p>
+          </div>
+          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[10px] shrink-0">
+            SIMULATED
+          </Badge>
+        </div>
+      )}
+
       {/* Header */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="p-6">

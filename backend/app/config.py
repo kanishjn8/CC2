@@ -32,8 +32,8 @@ LLM_CALL_COOLDOWN: float = float(os.getenv("LLM_CALL_COOLDOWN", "30.0"))  # 30 s
 
 # Gemini LLM
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-GEMINI_PRIMARY_MODEL: str = os.getenv("GEMINI_PRIMARY_MODEL", "models/gemini-3-flash-preview")
-GEMINI_FALLBACK_MODEL: str = os.getenv("GEMINI_FALLBACK_MODEL", "models/gemini-3-flash-lite-preview")
+GEMINI_PRIMARY_MODEL: str = os.getenv("GEMINI_PRIMARY_MODEL", "models/gemini-2.0-flash")
+GEMINI_FALLBACK_MODEL: str = os.getenv("GEMINI_FALLBACK_MODEL", "models/gemini-2.0-flash-lite")
 
 # SMTP Email (for alert actions)
 SMTP_HOST: str = os.getenv("SMTP_HOST", "")
@@ -43,3 +43,19 @@ SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
 SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
 ALERT_EMAIL_FROM: str = os.getenv("ALERT_EMAIL_FROM", "alerts@routesense.ai")
 ALERT_EMAIL_TO: str = os.getenv("ALERT_EMAIL_TO", "")  # comma-separated list
+# Minimum seconds between emails for the *same* entity (per-entity cooldown)
+ALERT_EMAIL_COOLDOWN: float = float(os.getenv("ALERT_EMAIL_COOLDOWN", "300.0"))  # 5 minutes default
+
+# Shipment lifecycle manager
+LIFECYCLE_TICK_INTERVAL: float = float(os.getenv("LIFECYCLE_TICK_INTERVAL", "10.0"))
+LIFECYCLE_GRACE_PERIOD: float = float(os.getenv("LIFECYCLE_GRACE_PERIOD", "20.0"))  # seconds before pruning delivered shipments from map
+LIFECYCLE_TARGET_ACTIVE: int = int(os.getenv("LIFECYCLE_TARGET_ACTIVE", "60"))      # target active shipment count
+
+# CORS — comma-separated list of allowed frontend origins.
+# In production set e.g. ALLOWED_ORIGINS=https://routesense.vercel.app
+# Defaults to wildcard so local dev works without any .env entry.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+ALLOWED_ORIGINS: list[str] = (
+    ["*"] if _raw_origins.strip() == "*"
+    else [o.strip() for o in _raw_origins.split(",") if o.strip()]
+)

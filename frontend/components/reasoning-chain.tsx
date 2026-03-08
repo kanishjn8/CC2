@@ -24,8 +24,11 @@ function parseActionDetails(decision: AgentDecision): {
   llmTiebreaker: boolean
   llmReasoning: string
   llmGenerated: boolean
+  isCompanionAlert: boolean
+  primaryAction: string | null
+  primaryActionScore: number | null
 } {
-  const defaults = { actionScores: [], llmTiebreaker: false, llmReasoning: "", llmGenerated: false }
+  const defaults = { actionScores: [], llmTiebreaker: false, llmReasoning: "", llmGenerated: false, isCompanionAlert: false, primaryAction: null, primaryActionScore: null }
   if (!decision.action_details) return defaults
 
   try {
@@ -40,6 +43,9 @@ function parseActionDetails(decision: AgentDecision): {
       llmTiebreaker: bestAction.llm_tiebreaker === true,
       llmReasoning: bestAction.llm_reasoning ?? details.approval_result?.llm_reasoning ?? "",
       llmGenerated: false, // will be overridden below
+      isCompanionAlert: details.is_companion_alert === true,
+      primaryAction: details.primary_action ?? null,
+      primaryActionScore: details.primary_action_score ?? null,
     }
   } catch {
     return defaults
@@ -154,6 +160,21 @@ export function ReasoningChain({ decision }: ReasoningChainProps) {
               Risk: {(decision.risk_score * 100).toFixed(0)}% | Confidence: {(decision.confidence * 100).toFixed(0)}%
               {decision.sla_impact != null && ` | SLA Impact: ${decision.sla_impact} hrs`}
             </p>
+            {/* Companion alert notice */}
+            {details.isCompanionAlert && details.primaryAction && (
+              <div className="mt-1.5 p-1.5 rounded bg-blue-500/5 border border-blue-500/20">
+                <p className="text-[10px] text-blue-400 leading-relaxed">
+                  <span className="font-semibold">Companion notification</span> — the primary action{" "}
+                  <span className="font-mono font-semibold">
+                    {details.primaryAction.replace(/_/g, " ")}
+                  </span>
+                  {details.primaryActionScore != null && (
+                    <span> ({(details.primaryActionScore * 100).toFixed(0)}%)</span>
+                  )}
+                  {" "}requires approval. This alert was sent automatically to notify the operator.
+                </p>
+              </div>
+            )}
             {/* Action scores breakdown */}
             {details.actionScores.length > 0 && (
               <div className="mt-1.5 space-y-0.5">
@@ -199,6 +220,11 @@ export function ReasoningChain({ decision }: ReasoningChainProps) {
             <span className="font-semibold text-foreground">
               {decision.recommended_action.replace(/_/g, " ")}
             </span>
+            {details.isCompanionAlert && (
+              <Badge variant="outline" className="ml-1.5 text-[9px] border-blue-500/40 text-blue-400">
+                Companion Alert
+              </Badge>
+            )}
             {decision.requires_approval && (
               <Badge variant="outline" className="ml-1.5 text-[9px] border-amber-500/40 text-amber-400">
                 Approval Required

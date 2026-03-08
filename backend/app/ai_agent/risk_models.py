@@ -3,11 +3,14 @@ Risk detection models — ML-based delay prediction plus rule-based
 bottleneck and carrier degradation detection.
 """
 
+import logging
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 
 from app.config import BOTTLENECK_THRESHOLD, CARRIER_RELIABILITY_THRESHOLD
+
+log = logging.getLogger("cc2.risk_models")
 
 FEATURE_NAMES = [
     "distance",
@@ -47,7 +50,7 @@ class DelayRiskModel:
         self.model.fit(X_scaled, y)
         self._trained = True
         accuracy = self.model.score(X_scaled, y)
-        print(f"[agent] Delay risk model trained — accuracy: {accuracy:.3f}")
+        log.info("Delay risk model trained — accuracy: %.3f", accuracy)
 
     def predict(self, features: dict) -> float:
         """Return delay probability (0–1) for a single shipment."""

@@ -9,6 +9,7 @@ import json
 import logging
 import random
 import smtplib
+import time
 from datetime import timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -27,6 +28,9 @@ from app.models import (
 from app import config as _cfg
 
 log = logging.getLogger("cc2.actions")
+
+# Global email cooldown tracker — timestamp of last email sent (monotonic)
+_email_last_sent_at: float = 0.0
 
 
 def _linestring_geojson(geom_col) -> dict | None:
@@ -66,6 +70,7 @@ def reroute_shipment(db: Session, shipment_id: str) -> dict:
 
     result = {
         "success": True,
+        "shipment_id": shipment_id,
         "old_route": old_route_id,
         "new_route": best_route.route_id,
         "new_route_origin": best_route.origin,
@@ -73,6 +78,8 @@ def reroute_shipment(db: Session, shipment_id: str) -> dict:
         "eta_improvement_hours": round(improvement.total_seconds() / 3600, 2),
         "old_route_geometry": _linestring_geojson(old_route.path) if old_route else None,
         "new_route_geometry": _linestring_geojson(best_route.path),
+        "origin": shipment.origin,
+        "destination": shipment.destination,
     }
 
     log.info("🔀 Rerouted %s: %s → %s (ETA improved by %.1fh)",
@@ -111,6 +118,12 @@ def switch_carrier(db: Session, shipment_id: str) -> dict:
     if not shipment:
         return {"success": False, "reason": "Shipment not found"}
 
+    old_carrier_obj = (
+        db.query(CarrierPerformance)
+        .filter(CarrierPerformance.carrier_id == shipment.carrier)
+        .first()
+    )
+
     best_carrier = (
         db.query(CarrierPerformance)
         .filter(CarrierPerformance.carrier_id != shipment.carrier)
@@ -120,16 +133,45 @@ def switch_carrier(db: Session, shipment_id: str) -> dict:
     if not best_carrier:
         return {"success": False, "reason": "No alternative carrier available"}
 
-    old_carrier = shipment.carrier
+    old_carrier_id = shipment.carrier
+    old_carrier_name = old_carrier_obj.name if old_carrier_obj else old_carrier_id
+    old_reliability = old_carrier_obj.reliability_score if old_carrier_obj else 0.0
+    old_delay_prob = old_carrier_obj.delay_probability if old_carrier_obj else 1.0
+
     shipment.carrier = best_carrier.carrier_id
     best_carrier.total_shipments += 1
 
-    return {
+    # ETA improvement from better carrier reliability
+    reliability_gain = best_carrier.reliability_score - old_reliability
+    improvement = timedelta(hours=random.uniform(0.5, 2) * max(reliability_gain, 0.1))
+    shipment.eta = shipment.eta - improvement
+
+    # Get route geometry for map visualization
+    route = db.query(Route).filter_by(route_id=shipment.route_id).first() if shipment.route_id else None
+
+    result = {
         "success": True,
-        "old_carrier": old_carrier,
+        "shipment_id": shipment_id,
+        "old_carrier": old_carrier_id,
+        "old_carrier_name": old_carrier_name,
+        "old_carrier_reliability": round(old_reliability, 3),
+        "old_carrier_delay_prob": round(old_delay_prob, 3),
         "new_carrier": best_carrier.carrier_id,
-        "new_carrier_reliability": best_carrier.reliability_score,
+        "new_carrier_name": best_carrier.name,
+        "new_carrier_reliability": round(best_carrier.reliability_score, 3),
+        "new_carrier_delay_prob": round(best_carrier.delay_probability, 3),
+        "eta_improvement_hours": round(improvement.total_seconds() / 3600, 2),
+        "origin": shipment.origin,
+        "destination": shipment.destination,
+        "route_id": shipment.route_id,
+        "route_geometry": _linestring_geojson(route.path) if route else None,
     }
+
+    log.info("🔄 Carrier switched for %s: %s → %s (reliability %.2f → %.2f, ETA improved by %.1fh)",
+             shipment_id, old_carrier_id, best_carrier.carrier_id,
+             old_reliability, best_carrier.reliability_score,
+             improvement.total_seconds() / 3600)
+    return result
 
 
 def _send_email(subject: str, body_html: str, body_text: str) -> bool:
@@ -169,23 +211,43 @@ def _send_email(subject: str, body_html: str, body_text: str) -> bool:
 
 
 def send_alert(db: Session, entity_id: str, message: str) -> dict:
-    """Record an operator alert and optionally send via SMTP email."""
-    alert_message = message or f"Risk detected for entity {entity_id}"
-    log.info("🚨 Alert sent for %s: %s", entity_id, alert_message)
+    """Record an operator alert and optionally send via SMTP email.
 
-    # Attempt SMTP email
-    subject = f"[RouteSense Alert] Risk detected — {entity_id}"
+    Emails are rate-limited **globally**: at most one email per
+    ALERT_EMAIL_COOLDOWN seconds (default 5 min), regardless of entity.
+    The alert is always logged to the DB; only the email is throttled.
+    """
+    global _email_last_sent_at
+
+    alert_message = message or f"Risk detected for entity {entity_id}"
+    log.info("🚨 ALERT  %s", entity_id)
+
+    # ── global email cooldown ──────────────────────────────────────────
+    now = time.monotonic()
+    cooldown = _cfg.ALERT_EMAIL_COOLDOWN
+    elapsed = now - _email_last_sent_at
+
+    if elapsed < cooldown:
+        remaining = int(cooldown - elapsed)
+        log.debug("📧 Email suppressed — cooldown %ds remaining", remaining)
+        return {
+            "success": True,
+            "entity_id": entity_id,
+            "alert_type": "risk_alert",
+            "alert_message": alert_message,
+            "email_sent": False,
+            "email_suppressed": True,
+            "cooldown_remaining_seconds": remaining,
+        }
+
+    # ── build email ────────────────────────────────────────────────────
+    subject = f"⚠️ RouteSense Alert — {entity_id}"
     body_text = f"Entity: {entity_id}\n\n{alert_message}"
-    body_html = (
-        f"<div style='font-family:sans-serif;max-width:600px'>"
-        f"<h2 style='color:#e74c3c'>⚠️ RouteSense Risk Alert</h2>"
-        f"<p><strong>Entity:</strong> {entity_id}</p>"
-        f"<p>{alert_message}</p>"
-        f"<hr style='border:none;border-top:1px solid #eee'>"
-        f"<p style='color:#888;font-size:12px'>Sent by RouteSense AI Control Tower</p>"
-        f"</div>"
-    )
+    body_html = _build_alert_email_html(entity_id, alert_message)
     email_sent = _send_email(subject, body_html, body_text)
+
+    if email_sent:
+        _email_last_sent_at = now
 
     return {
         "success": True,
@@ -193,7 +255,86 @@ def send_alert(db: Session, entity_id: str, message: str) -> dict:
         "alert_type": "risk_alert",
         "alert_message": alert_message,
         "email_sent": email_sent,
+        "email_suppressed": False,
     }
+
+
+def _build_alert_email_html(entity_id: str, message: str) -> str:
+    """Generate a polished HTML email for risk alerts."""
+    from datetime import datetime
+
+    timestamp = datetime.utcnow().strftime("%b %d, %Y  %H:%M UTC")
+
+    return f"""\
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;padding:32px 16px">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#1e293b;border-radius:12px;overflow:hidden;border:1px solid #334155">
+        <!-- Header -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#dc2626 0%,#991b1b 100%);padding:24px 32px">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.3px">
+                  ⚠️&nbsp; Risk Alert
+                </td>
+                <td align="right" style="color:#fca5a5;font-size:12px">
+                  {timestamp}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Entity Badge -->
+        <tr>
+          <td style="padding:24px 32px 12px">
+            <table cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="background:#0f172a;border:1px solid #475569;border-radius:6px;padding:6px 14px">
+                  <span style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px">Entity</span><br>
+                  <span style="color:#f1f5f9;font-size:16px;font-weight:600;font-family:monospace">{entity_id}</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Message -->
+        <tr>
+          <td style="padding:12px 32px 24px">
+            <p style="color:#e2e8f0;font-size:14px;line-height:1.7;margin:0">
+              {message}
+            </p>
+          </td>
+        </tr>
+        <!-- Divider -->
+        <tr>
+          <td style="padding:0 32px">
+            <div style="border-top:1px solid #334155"></div>
+          </td>
+        </tr>
+        <!-- Footer -->
+        <tr>
+          <td style="padding:16px 32px 24px">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="color:#64748b;font-size:11px">
+                  Sent by <strong style="color:#94a3b8">RouteSense AI Control Tower</strong>
+                </td>
+                <td align="right">
+                  <span style="background:#14532d;color:#4ade80;font-size:10px;font-weight:600;padding:3px 10px;border-radius:10px;letter-spacing:0.5px">AUTOMATED</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
 
 
 def reserve_capacity(db: Session, warehouse_id: str) -> dict:

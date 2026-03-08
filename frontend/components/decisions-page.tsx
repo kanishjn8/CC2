@@ -1,6 +1,7 @@
 "use client"
 
 import { Fragment, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -25,12 +26,13 @@ import {
   Navigation,
   Bell,
   Sparkles,
+  RefreshCw,
 } from "lucide-react"
 import { useDecisions, useAgentMetrics, useLlmStats } from "@/hooks/use-data"
 import { cn, getRiskColor, getRiskLabel, formatPercent, formatTimeAgo } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { ReasoningChain } from "@/components/reasoning-chain"
-import type { RerouteResult } from "@/lib/types"
+import type { RerouteResult, CarrierSwitchResult } from "@/lib/types"
 import { useRerouteContext } from "@/hooks/use-reroute-context"
 
 interface DecisionsPageProps {
@@ -38,7 +40,8 @@ interface DecisionsPageProps {
 }
 
 export default function DecisionsPage({ onReroute: onRerouteProp }: DecisionsPageProps) {
-  const { setRerouteData } = useRerouteContext()
+  const router = useRouter()
+  const { setRerouteData, setCarrierSwitchData } = useRerouteContext()
   const { data: decisions, loading, refetch } = useDecisions()
   const { data: metrics } = useAgentMetrics()
   const { data: llmStats } = useLlmStats()
@@ -66,7 +69,7 @@ export default function DecisionsPage({ onReroute: onRerouteProp }: DecisionsPag
       if (action === "reroute_shipment" && res.result) {
         const rerouteResult: RerouteResult = {
           status: "rerouted",
-          shipment_id: res.result.old_route ? String(res.result.old_route) : "",
+          shipment_id: res.result.shipment_id ? String(res.result.shipment_id) : "",
           old_route: res.result.old_route ? String(res.result.old_route) : null,
           new_route: res.result.new_route ? String(res.result.new_route) : null,
           new_route_origin: res.result.new_route_origin ? String(res.result.new_route_origin) : null,
@@ -77,7 +80,31 @@ export default function DecisionsPage({ onReroute: onRerouteProp }: DecisionsPag
           message: `Rerouted: ETA improved by ${Number(res.result.eta_improvement_hours ?? 0).toFixed(1)}h`,
         }
         onReroute?.(rerouteResult)
-        showToast("success", `✅ Reroute approved — ETA improved by ${rerouteResult.eta_improvement_hours.toFixed(1)}h. Check the map!`)
+        showToast("success", `✅ Reroute approved — ${rerouteResult.old_route} → ${rerouteResult.new_route}. ETA improved by ${rerouteResult.eta_improvement_hours.toFixed(1)}h. Check the map!`)
+      } else if (action === "switch_carrier" && res.result) {
+        const switchResult: CarrierSwitchResult = {
+          status: "carrier_switched",
+          shipment_id: res.result.shipment_id ? String(res.result.shipment_id) : "",
+          old_carrier: res.result.old_carrier ? String(res.result.old_carrier) : null,
+          old_carrier_name: res.result.old_carrier_name ? String(res.result.old_carrier_name) : null,
+          old_carrier_reliability: Number(res.result.old_carrier_reliability ?? 0),
+          old_carrier_delay_prob: Number(res.result.old_carrier_delay_prob ?? 0),
+          new_carrier: res.result.new_carrier ? String(res.result.new_carrier) : null,
+          new_carrier_name: res.result.new_carrier_name ? String(res.result.new_carrier_name) : null,
+          new_carrier_reliability: Number(res.result.new_carrier_reliability ?? 0),
+          new_carrier_delay_prob: Number(res.result.new_carrier_delay_prob ?? 0),
+          eta_improvement_hours: Number(res.result.eta_improvement_hours ?? 0),
+          origin: res.result.origin ? String(res.result.origin) : null,
+          destination: res.result.destination ? String(res.result.destination) : null,
+          route_id: res.result.route_id ? String(res.result.route_id) : null,
+          route_geometry: res.result.route_geometry as CarrierSwitchResult["route_geometry"] ?? null,
+          message: `Carrier switched from ${res.result.old_carrier_name ?? res.result.old_carrier} to ${res.result.new_carrier_name ?? res.result.new_carrier}`,
+        }
+        setCarrierSwitchData(switchResult)
+        showToast(
+          "success",
+          `✅ Carrier switch approved — ${switchResult.old_carrier_name || switchResult.old_carrier} → ${switchResult.new_carrier_name || switchResult.new_carrier} (reliability ${(switchResult.new_carrier_reliability * 100).toFixed(0)}%). Check the map!`
+        )
       } else {
         showToast("success", `✅ Action "${action}" approved and executed.`)
       }
@@ -347,7 +374,7 @@ export default function DecisionsPage({ onReroute: onRerouteProp }: DecisionsPag
                                                   new_route_geometry: result.new_route_geometry ?? null,
                                                   message: `Rerouted: ETA improved by ${Number(result.eta_improvement_hours).toFixed(1)}h`,
                                                 })
-                                                showToast("info", "📍 Reroute shown on map — switch to Overview tab.")
+                                                router.push("/")
                                               }}
                                             >
                                               <Navigation className="h-3 w-3 mr-1" />
@@ -358,6 +385,157 @@ export default function DecisionsPage({ onReroute: onRerouteProp }: DecisionsPag
                                       </div>
                                     )
                                   }
+                                } catch { /* parse error */ }
+                                return null
+                              })()}
+                              {/* Show carrier switch result if approved */}
+                              {decision.status === "approved" && decision.recommended_action === "switch_carrier" && decision.action_details && (() => {
+                                try {
+                                  const details = JSON.parse(decision.action_details)
+                                  const result = details.approval_result
+                                  if (result?.success) {
+                                    return (
+                                      <div className="mt-2 p-2 rounded-md bg-purple-500/10 border border-purple-500/20">
+                                        <p className="font-semibold text-purple-400 text-[10px] uppercase tracking-wide mb-1 flex items-center gap-1">
+                                          <RefreshCw className="h-3 w-3" /> Carrier Switch Result
+                                        </p>
+                                        <div className="space-y-0.5 text-[11px]">
+                                          <p>
+                                            <span className="text-muted-foreground">Shipment:</span>{" "}
+                                            <span className="text-foreground font-mono">{result.shipment_id || decision.entity_id}</span>
+                                          </p>
+                                          <p>
+                                            <span className="text-muted-foreground">Old Carrier:</span>{" "}
+                                            <span className="text-red-400">{result.old_carrier_name || result.old_carrier}</span>
+                                            <span className="text-muted-foreground ml-1">(reliability {((result.old_carrier_reliability ?? 0) * 100).toFixed(0)}%, delay prob {((result.old_carrier_delay_prob ?? 0) * 100).toFixed(0)}%)</span>
+                                          </p>
+                                          <p>
+                                            <span className="text-muted-foreground">New Carrier:</span>{" "}
+                                            <span className="text-purple-400">{result.new_carrier_name || result.new_carrier}</span>
+                                            <span className="text-emerald-400 ml-1">(reliability {((result.new_carrier_reliability ?? 0) * 100).toFixed(0)}%, delay prob {((result.new_carrier_delay_prob ?? 0) * 100).toFixed(0)}%)</span>
+                                          </p>
+                                          <p>
+                                            <span className="text-muted-foreground">Route:</span>{" "}
+                                            <span className="text-foreground">{result.origin} → {result.destination}</span>
+                                          </p>
+                                          <p>
+                                            <span className="text-muted-foreground">ETA Improved:</span>{" "}
+                                            <span className="text-emerald-400">{Number(result.eta_improvement_hours).toFixed(1)}h</span>
+                                          </p>
+                                          {result.route_geometry && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="mt-1.5 h-6 text-[10px] text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                setCarrierSwitchData({
+                                                  status: "carrier_switched",
+                                                  shipment_id: result.shipment_id || decision.entity_id,
+                                                  old_carrier: result.old_carrier ?? null,
+                                                  old_carrier_name: result.old_carrier_name ?? null,
+                                                  old_carrier_reliability: result.old_carrier_reliability ?? 0,
+                                                  old_carrier_delay_prob: result.old_carrier_delay_prob ?? 0,
+                                                  new_carrier: result.new_carrier ?? null,
+                                                  new_carrier_name: result.new_carrier_name ?? null,
+                                                  new_carrier_reliability: result.new_carrier_reliability ?? 0,
+                                                  new_carrier_delay_prob: result.new_carrier_delay_prob ?? 0,
+                                                  eta_improvement_hours: result.eta_improvement_hours ?? 0,
+                                                  origin: result.origin ?? null,
+                                                  destination: result.destination ?? null,
+                                                  route_id: result.route_id ?? null,
+                                                  route_geometry: result.route_geometry ?? null,
+                                                  message: `Carrier switched: ${result.old_carrier_name || result.old_carrier} → ${result.new_carrier_name || result.new_carrier}`,
+                                                })
+                                                router.push("/")
+                                              }}
+                                            >
+                                              <RefreshCw className="h-3 w-3 mr-1" />
+                                              Show on Map
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  }
+                                } catch { /* parse error */ }
+                                return null
+                              })()}
+                              {/* Show pending carrier switch details */}
+                              {decision.status === "pending_approval" && decision.recommended_action === "switch_carrier" && decision.action_details && (() => {
+                                try {
+                                  const details = JSON.parse(decision.action_details)
+                                  if (details.current_carrier || details.proposed_new_carrier) {
+                                    return (
+                                      <div className="mt-2 p-2 rounded-md bg-purple-500/5 border border-purple-500/10">
+                                        <p className="font-semibold text-purple-400/70 text-[10px] uppercase tracking-wide mb-1 flex items-center gap-1">
+                                          <RefreshCw className="h-3 w-3" /> Proposed Carrier Change
+                                        </p>
+                                        <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                                          {details.shipment_id && <p>Shipment: <span className="text-foreground font-mono">{details.shipment_id}</span></p>}
+                                          {details.current_carrier_name && (
+                                            <p>
+                                              Current Carrier: <span className="text-red-400">{details.current_carrier_name}</span>
+                                              {details.current_reliability != null && (
+                                                <span className="text-muted-foreground ml-1">
+                                                  (reliability {(details.current_reliability * 100).toFixed(0)}%{details.current_delay_prob != null && `, delay prob ${(details.current_delay_prob * 100).toFixed(0)}%`})
+                                                </span>
+                                              )}
+                                            </p>
+                                          )}
+                                          {details.proposed_new_carrier_name && (
+                                            <p>
+                                              Proposed Carrier: <span className="text-purple-400">{details.proposed_new_carrier_name}</span>
+                                              {details.proposed_new_reliability != null && (
+                                                <span className="text-emerald-400 ml-1">
+                                                  (reliability {(details.proposed_new_reliability * 100).toFixed(0)}%{details.proposed_new_delay_prob != null && `, delay prob ${(details.proposed_new_delay_prob * 100).toFixed(0)}%`})
+                                                </span>
+                                              )}
+                                            </p>
+                                          )}
+                                          {details.origin && details.destination && (
+                                            <p>Route: <span className="text-foreground">{details.origin} → {details.destination}</span></p>
+                                          )}
+                                          {!details.proposed_new_carrier_name && (
+                                            <p className="text-purple-300/70 text-[10px] italic mt-1">Best alternative carrier will be selected on approval</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  }
+                                } catch { /* parse error */ }
+                                return null
+                              })()}
+                              {/* Show pending reroute details */}
+                              {decision.status === "pending_approval" && decision.recommended_action === "reroute_shipment" && decision.action_details && (() => {
+                                try {
+                                  const details = JSON.parse(decision.action_details)
+                                  return (
+                                    <div className="mt-2 p-2 rounded-md bg-cyan-500/5 border border-cyan-500/10">
+                                      <p className="font-semibold text-cyan-400/70 text-[10px] uppercase tracking-wide mb-1 flex items-center gap-1">
+                                        <Navigation className="h-3 w-3" /> Proposed Reroute
+                                      </p>
+                                      <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                                        {details.shipment_id && <p>Shipment: <span className="text-foreground font-mono">{details.shipment_id}</span></p>}
+                                        {details.current_route && (
+                                          <p>Current Route: <span className="text-red-400">{details.current_route}</span></p>
+                                        )}
+                                        {details.proposed_new_route && (
+                                          <p>Proposed Route: <span className="text-cyan-400">{details.proposed_new_route}</span>
+                                            {details.proposed_new_route_origin && details.proposed_new_route_destination && (
+                                              <span className="text-muted-foreground ml-1">({details.proposed_new_route_origin} → {details.proposed_new_route_destination})</span>
+                                            )}
+                                          </p>
+                                        )}
+                                        {details.origin && details.destination && (
+                                          <p>Shipment: <span className="text-foreground">{details.origin} → {details.destination}</span></p>
+                                        )}
+                                        {!details.proposed_new_route && (
+                                          <p className="text-cyan-300/70 text-[10px] italic mt-1">Best available route will be selected on approval</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
                                 } catch { /* parse error */ }
                                 return null
                               })()}

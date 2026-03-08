@@ -70,6 +70,8 @@ class Shipment(Base):
     current_location = Column(Geometry("POINT", srid=4326), nullable=True)
     origin_point = Column(Geometry("POINT", srid=4326), nullable=True)
     destination_point = Column(Geometry("POINT", srid=4326), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    delivered_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

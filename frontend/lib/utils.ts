@@ -42,7 +42,8 @@ export function formatPercent(value: number): string {
 }
 
 export function formatTimestamp(ts: string): string {
-  return new Date(ts).toLocaleString("en-IN", {
+  const utcTs = ts.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(ts) ? ts : ts + "Z"
+  return new Date(utcTs).toLocaleString("en-IN", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -51,7 +52,11 @@ export function formatTimestamp(ts: string): string {
 }
 
 export function formatTimeAgo(ts: string): string {
-  const diff = Date.now() - new Date(ts).getTime()
+  // Backend stores naive UTC timestamps (no 'Z' suffix).
+  // Append 'Z' if missing so the browser interprets them as UTC
+  // instead of local time — avoids timezone drift.
+  const utcTs = ts.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(ts) ? ts : ts + "Z"
+  const diff = Date.now() - new Date(utcTs).getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return "Just now"
   if (mins < 60) return `${mins}m ago`

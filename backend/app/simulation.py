@@ -46,6 +46,7 @@ class LogisticsSimulation:
         self._running = False
         self._thread: threading.Thread | None = None
         self._events_generated = 0
+        self._tick_count = 0
 
     # ── public control ───────────────────────────────────────────────────
 
@@ -89,13 +90,20 @@ class LogisticsSimulation:
             db = SessionLocal()
             try:
                 tick_start = time.monotonic()
+                events_before = self._events_generated
                 self._tick(db)
                 db.commit()
+                self._tick_count += 1
+                new_events = self._events_generated - events_before
                 elapsed = time.monotonic() - tick_start
-                log.debug(
-                    "[sim tick] sim_time=%.1f  events_total=%d  tick_duration=%.3fs",
-                    self.env.now, self._events_generated, elapsed,
-                )
+                # Log summary every ~30s (15 ticks at 2s interval)
+                if self._tick_count % 15 == 0:
+                    log.info(
+                        "🔄 SIM  tick=#%d  sim_time=%.0f  events_total=%d  "
+                        "last_batch=%d  tick=%.2fs",
+                        self._tick_count, self.env.now,
+                        self._events_generated, new_events, elapsed,
+                    )
             except Exception as exc:
                 db.rollback()
                 log.error("[sim tick ERROR] %s", exc, exc_info=True)
@@ -132,6 +140,7 @@ class LogisticsSimulation:
 
     def _advance_shipments(self, db: Session):
         shipments: list[Shipment] = db.query(Shipment).filter(
+            Shipment.is_active.is_(True),
             Shipment.status.notin_([ShipmentStatus.delivered, ShipmentStatus.failed])
         ).all()
 
@@ -142,7 +151,7 @@ class LogisticsSimulation:
             if s.status == ShipmentStatus.created and roll < 0.4:
                 s.status = ShipmentStatus.dispatched
                 self._interpolate_location(s, 0.05)
-                log.info("📦 DISPATCHED  %s  %s → %s  carrier=%s",
+                log.debug("📦 DISPATCHED  %s  %s → %s  carrier=%s",
                          s.shipment_id, s.origin, s.destination, s.carrier)
                 self._emit(db, EventType.shipment_dispatched, s.shipment_id, {
                     "origin": s.origin, "destination": s.destination, "carrier": s.carrier,
@@ -151,7 +160,7 @@ class LogisticsSimulation:
             elif s.status == ShipmentStatus.dispatched and roll < 0.35:
                 s.status = ShipmentStatus.in_transit
                 self._interpolate_location(s, random.uniform(0.1, 0.3))
-                log.info("🚚 IN_TRANSIT   %s  %s → %s",
+                log.debug("🚚 IN_TRANSIT   %s  %s → %s",
                          s.shipment_id, s.origin, s.destination)
                 self._emit(db, EventType.shipment_dispatched, s.shipment_id, {
                     "status": "in_transit",
@@ -165,7 +174,7 @@ class LogisticsSimulation:
                     s.eta = s.eta + drift
                     if carrier:
                         carrier.total_delays += 1
-                    log.warning("⚠️  DELAYED     %s  %s → %s  new_eta=%s  carrier=%s",
+                    log.debug("⚠️  DELAYED     %s  %s → %s  new_eta=%s  carrier=%s",
                                 s.shipment_id, s.origin, s.destination,
                                 s.eta.strftime("%Y-%m-%d %H:%M"), s.carrier)
                     self._emit(db, EventType.shipment_delayed, s.shipment_id, {
@@ -175,7 +184,7 @@ class LogisticsSimulation:
                 elif roll < 0.25:
                     s.status = ShipmentStatus.delivered
                     self._interpolate_location(s, 1.0)
-                    log.info("✅ DELIVERED    %s  %s → %s",
+                    log.debug("✅ DELIVERED    %s  %s → %s",
                              s.shipment_id, s.origin, s.destination)
                     self._emit(db, EventType.shipment_delivered, s.shipment_id, {
                         "destination": s.destination,
@@ -184,7 +193,7 @@ class LogisticsSimulation:
             elif s.status == ShipmentStatus.delayed and roll < 0.3:
                 s.status = ShipmentStatus.in_transit
                 self._interpolate_location(s, random.uniform(0.4, 0.7))
-                log.info("🔄 RESUMED      %s  %s → %s",
+                log.debug("🔄 RESUMED      %s  %s → %s",
                          s.shipment_id, s.origin, s.destination)
                 self._emit(db, EventType.shipment_dispatched, s.shipment_id, {
                     "status": "resumed_transit",
@@ -201,7 +210,7 @@ class LogisticsSimulation:
             wh.congestion_score = round(wh.current_load / max(wh.capacity, 1), 3)
 
             if wh.congestion_score > 0.85:
-                log.warning("🏭 CONGESTED    warehouse=%s @ %s  load=%d/%d (%.0f%%)",
+                log.debug("🏭 CONGESTED    warehouse=%s @ %s  load=%d/%d (%.0f%%)",
                             wh.warehouse_id, wh.location,
                             wh.current_load, wh.capacity, wh.congestion_score * 100)
                 self._emit(db, EventType.warehouse_congestion, wh.warehouse_id, {
@@ -251,7 +260,7 @@ class LogisticsSimulation:
             if ship:
                 drift = timedelta(hours=random.uniform(1, 6))
                 ship.eta = ship.eta + drift
-                log.warning("⏱️  ETA DRIFT    %s  %s → %s  +%.1fh  new_eta=%s",
+                log.debug("⏱️  ETA DRIFT    %s  %s → %s  +%.1fh  new_eta=%s",
                             ship.shipment_id, ship.origin, ship.destination,
                             drift.total_seconds() / 3600,
                             ship.eta.strftime("%Y-%m-%d %H:%M"))
@@ -265,7 +274,7 @@ class LogisticsSimulation:
             carrier = db.query(CarrierPerformance).order_by(CarrierPerformance.pickup_success_rate).first()
             if carrier:
                 carrier.pickup_success_rate = round(max(0.5, carrier.pickup_success_rate - 0.02), 3)
-                log.warning("❌ PICKUP FAIL  carrier=%s (%s)  pickup_success=%.3f",
+                log.debug("❌ PICKUP FAIL  carrier=%s (%s)  pickup_success=%.3f",
                             carrier.carrier_id, carrier.name, carrier.pickup_success_rate)
                 self._emit(db, EventType.pickup_failure, carrier.carrier_id, {
                     "pickup_success_rate": carrier.pickup_success_rate,
@@ -277,7 +286,7 @@ class LogisticsSimulation:
             if carrier:
                 carrier.reliability_score = round(max(0.3, carrier.reliability_score - 0.03), 3)
                 carrier.delay_probability = round(min(0.6, carrier.delay_probability + 0.02), 3)
-                log.warning("📉 CARRIER DEG  carrier=%s (%s)  reliability=%.3f  delay_prob=%.3f",
+                log.debug("📉 CARRIER DEG  carrier=%s (%s)  reliability=%.3f  delay_prob=%.3f",
                             carrier.carrier_id, carrier.name,
                             carrier.reliability_score, carrier.delay_probability)
                 self._emit(db, EventType.carrier_delay_event, carrier.carrier_id, {

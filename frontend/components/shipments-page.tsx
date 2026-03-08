@@ -207,7 +207,7 @@ export default function ShipmentsPage() {
                     </TableCell>
                     <TableCell>{shipment.origin}</TableCell>
                     <TableCell>{shipment.destination}</TableCell>
-                    <TableCell className="text-muted-foreground">{shipment.carrier}</TableCell>
+                    <TableCell className="text-muted-foreground">{shipment.carrier_name || shipment.carrier}</TableCell>
                     <TableCell>
                       <Badge
                         variant={statusInfo?.variant as "default" | "outline" | "secondary" | "destructive" ?? "outline"}

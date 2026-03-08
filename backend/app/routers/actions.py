@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session
 from geoalchemy2.shape import to_shape
 
 from app.database import get_db
-from app.models import DecisionLog, Route, Shipment, TrafficLevel
+from app.models import DecisionLog, Route, Shipment, TrafficLevel, CarrierPerformance
 from app.ai_agent.actions import reroute_shipment as _reroute_action
+from app.ai_agent.actions import switch_carrier as _switch_carrier_action
 
 log = logging.getLogger("cc2.actions_api")
 
@@ -60,6 +61,30 @@ class RerouteResponse(BaseModel):
     eta_improvement_hours: float = 0.0
     old_route_geometry: RouteGeometry | None = None
     new_route_geometry: RouteGeometry | None = None
+    message: str = ""
+
+
+class SwitchCarrierRequest(BaseModel):
+    shipment_id: str
+    reason: str = ""
+
+
+class SwitchCarrierResponse(BaseModel):
+    status: str
+    shipment_id: str
+    old_carrier: str | None = None
+    old_carrier_name: str | None = None
+    old_carrier_reliability: float = 0.0
+    old_carrier_delay_prob: float = 0.0
+    new_carrier: str | None = None
+    new_carrier_name: str | None = None
+    new_carrier_reliability: float = 0.0
+    new_carrier_delay_prob: float = 0.0
+    eta_improvement_hours: float = 0.0
+    origin: str | None = None
+    destination: str | None = None
+    route_id: str | None = None
+    route_geometry: RouteGeometry | None = None
     message: str = ""
 
 
@@ -186,4 +211,80 @@ def reroute_action(body: RerouteRequest, db: Session = Depends(get_db)):
         old_route_geometry=result.get("old_route_geometry"),
         new_route_geometry=result.get("new_route_geometry"),
         message=f"Shipment rerouted. ETA improved by {result.get('eta_improvement_hours', 0):.1f}h",
+    )
+
+
+# ── POST /api/actions/switch-carrier ─────────────────────────────────────────
+
+@router.post("/switch-carrier", response_model=SwitchCarrierResponse)
+def switch_carrier_action(body: SwitchCarrierRequest, db: Session = Depends(get_db)):
+    """
+    Switch a shipment to a more reliable carrier.
+    Returns detailed carrier comparison data and route geometry
+    so the frontend can visualize the change on the map.
+    """
+    shipment = db.query(Shipment).filter_by(shipment_id=body.shipment_id).first()
+    if not shipment:
+        raise HTTPException(status_code=404, detail=f"Shipment '{body.shipment_id}' not found")
+
+    result = _switch_carrier_action(db, body.shipment_id)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("reason", "Carrier switch failed"))
+
+    # Create decision log entry
+    from uuid import uuid4
+    decision_id = f"DEC-{uuid4().hex[:8].upper()}"
+
+    dec = DecisionLog(
+        decision_id=decision_id,
+        risk_type="carrier_degradation",
+        entity_id=body.shipment_id,
+        shipment_id=body.shipment_id,
+        risk_score=0.7,
+        problem=body.reason or "Carrier reliability issue",
+        root_cause=body.reason or "Low carrier reliability score",
+        confidence=0.9,
+        recommended_action="switch_carrier",
+        action_details=json.dumps({
+            "old_carrier": result.get("old_carrier"),
+            "new_carrier": result.get("new_carrier"),
+            "old_carrier_reliability": result.get("old_carrier_reliability"),
+            "new_carrier_reliability": result.get("new_carrier_reliability"),
+            "eta_improvement_hours": result.get("eta_improvement_hours"),
+            "triggered_by": "operator",
+        }),
+        requires_approval=False,
+        status="executed",
+        outcome="completed",
+    )
+    db.add(dec)
+    db.commit()
+
+    log.info("🔄 Carrier switch executed for %s: %s → %s",
+             body.shipment_id, result.get("old_carrier"), result.get("new_carrier"))
+
+    return SwitchCarrierResponse(
+        status="carrier_switched",
+        shipment_id=body.shipment_id,
+        old_carrier=result.get("old_carrier"),
+        old_carrier_name=result.get("old_carrier_name"),
+        old_carrier_reliability=result.get("old_carrier_reliability", 0),
+        old_carrier_delay_prob=result.get("old_carrier_delay_prob", 0),
+        new_carrier=result.get("new_carrier"),
+        new_carrier_name=result.get("new_carrier_name"),
+        new_carrier_reliability=result.get("new_carrier_reliability", 0),
+        new_carrier_delay_prob=result.get("new_carrier_delay_prob", 0),
+        eta_improvement_hours=result.get("eta_improvement_hours", 0),
+        origin=result.get("origin"),
+        destination=result.get("destination"),
+        route_id=result.get("route_id"),
+        route_geometry=result.get("route_geometry"),
+        message=(
+            f"Carrier switched from {result.get('old_carrier_name', '?')} "
+            f"(reliability {result.get('old_carrier_reliability', 0):.0%}) → "
+            f"{result.get('new_carrier_name', '?')} "
+            f"(reliability {result.get('new_carrier_reliability', 0):.0%}). "
+            f"ETA improved by {result.get('eta_improvement_hours', 0):.1f}h"
+        ),
     )

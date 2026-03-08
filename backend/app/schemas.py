@@ -40,11 +40,14 @@ class ShipmentOut(BaseModel):
     shipment_id: str
     origin: str
     destination: str
-    carrier: str
+    carrier: str          # carrier_id stored in DB
+    carrier_name: Optional[str] = None   # human-readable name, joined at query time
     route_id: Optional[str] = None
     eta: datetime
     sla_deadline: datetime
     status: str
+    is_active: bool = True
+    delivered_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

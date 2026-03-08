@@ -30,10 +30,13 @@ TRAFFIC_ENCODING = {
 
 
 def get_active_shipments(db: Session) -> list[Shipment]:
-    """Return all shipments that are not yet delivered or failed."""
+    """Return all shipments that are active and not yet delivered or failed."""
     return (
         db.query(Shipment)
-        .filter(Shipment.status.notin_([ShipmentStatus.delivered, ShipmentStatus.failed]))
+        .filter(
+            Shipment.is_active.is_(True),
+            Shipment.status.notin_([ShipmentStatus.delivered, ShipmentStatus.failed]),
+        )
         .all()
     )
 

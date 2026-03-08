@@ -21,7 +21,8 @@ export interface Shipment {
   shipment_id: string;
   origin: string;
   destination: string;
-  carrier: string;          // carrier name (backend field)
+  carrier: string;          // carrier_id (backend field — raw ID)
+  carrier_name: string | null; // human-readable name joined at API level
   route_id: string | null;
   eta: string;              // ISO datetime
   sla_deadline: string;     // ISO datetime
@@ -174,6 +175,25 @@ export interface RerouteResult {
   eta_improvement_hours: number;
   old_route_geometry: RouteGeometry | null;
   new_route_geometry: RouteGeometry | null;
+  message: string;
+}
+
+export interface CarrierSwitchResult {
+  status: string;
+  shipment_id: string;
+  old_carrier: string | null;
+  old_carrier_name: string | null;
+  old_carrier_reliability: number;
+  old_carrier_delay_prob: number;
+  new_carrier: string | null;
+  new_carrier_name: string | null;
+  new_carrier_reliability: number;
+  new_carrier_delay_prob: number;
+  eta_improvement_hours: number;
+  origin: string | null;
+  destination: string | null;
+  route_id: string | null;
+  route_geometry: RouteGeometry | null;
   message: string;
 }
 

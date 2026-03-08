@@ -30,24 +30,44 @@ services:
     working_dir: /app
     # Install uv, sync deps, then launch uvicorn — all in one shot so the
     # image stays ephemeral and no pre-built image is required.
+    # PORT env var is injected by Railway; defaults to 8000 for local compose.
     command: >
       bash -c "
         pip install uv --quiet &&
         uv sync --no-dev &&
-        uv run uvicorn main:app --host 0.0.0.0 --port 8000
+        uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
       "
     volumes:
       - .:/app          # mount the entire backend folder
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:${PORT:-8000}"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/cc2_db
       SIM_TICK_INTERVAL: "2.0"
       SIM_SPEED: "10.0"
-      SEED_WAREHOUSES: "5"
-      SEED_CARRIERS: "8"
-      SEED_ROUTES: "12"
-      SEED_SHIPMENTS: "20"
+      SEED_WAREHOUSES: "10"
+      SEED_CARRIERS: "12"
+      SEED_ROUTES: "30"
+      SEED_SHIPMENTS: "60"
+      AGENT_TICK_INTERVAL: "60.0"
+      RISK_THRESHOLD: "0.6"
+      BOTTLENECK_THRESHOLD: "0.85"
+      CARRIER_RELIABILITY_THRESHOLD: "0.5"
+      LLM_CALL_COOLDOWN: "30.0"
+      ALERT_EMAIL_COOLDOWN: "300"
+      LIFECYCLE_TICK_INTERVAL: "10.0"
+      LIFECYCLE_GRACE_PERIOD: "20.0"
+      LIFECYCLE_TARGET_ACTIVE: "60"
+      # ── Secrets: set these in a .env file or Railway dashboard ──────────
+      # GEMINI_API_KEY: set_in_env_or_dashboard
+      # SMTP_HOST: smtp.gmail.com
+      # SMTP_PORT: 587
+      # SMTP_USER: your_email@gmail.com
+      # SMTP_PASSWORD: your_app_password
+      # SMTP_USE_TLS: "true"
+      # ALERT_EMAIL_FROM: alerts@routesense.ai
+      # ALERT_EMAIL_TO: operator@example.com
+      # ALLOWED_ORIGINS: https://your-frontend.vercel.app
     depends_on:
       postgres:
         condition: service_healthy
