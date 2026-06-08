@@ -58,6 +58,27 @@ class TestTraining:
         m.train(n_samples=50)
         assert m.is_trained is True
 
+    def test_training_summary_tracks_synthetic_source(self):
+        m = DelayRiskModel()
+        summary = m.train(n_samples=50)
+
+        assert summary["source"] == "synthetic"
+        assert summary["synthetic_samples"] == 50
+        assert summary["real_samples"] == 0
+        assert m.get_training_summary()["source"] == "synthetic"
+
+    def test_train_with_real_samples_marks_hybrid_source(self):
+        m = DelayRiskModel()
+        samples = [
+            (_sample_features(distance=300, eta_sla_buffer_hours=24), 0),
+            (_sample_features(distance=2300, eta_sla_buffer_hours=-3), 1),
+        ]
+        summary = m.train(n_samples=50, training_samples=samples)
+
+        assert summary["source"] == "hybrid"
+        assert summary["real_samples"] == 2
+        assert m.is_trained is True
+
 
 class TestPredict:
 

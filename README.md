@@ -1,263 +1,323 @@
-# CC2 — Logistics Simulation & Data Layer
+#+ CC2 — AI Logistics Control Center
 
-AI-powered logistics monitoring platform — Simulation engine, event generation system, and RESTful API for real-time operational data.
+CC2 is a full-stack, AI-assisted **logistics monitoring + control** demo.
 
-## Architecture
+It simulates a live logistics network (shipments, warehouses, carriers, routes), continuously emits events into Postgres, and runs an **Observe → Detect → Reason → Decide → Act → Learn** agent loop that turns those events into operator-facing decisions (reroutes, carrier switches, alerts).
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    FastAPI Application                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐ │
-│  │  Data API     │  │ Simulate API │  │  Health / Docs    │ │
-│  │ /api/shipments│  │ /api/simulate│  │  / , /health      │ │
-│  │ /api/warehouses│ │   /start     │  │  /docs (Swagger)  │ │
-│  │ /api/carriers │  │   /stop      │  └───────────────────┘ │
-│  │ /api/routes   │  │   /status    │                        │
-│  │ /api/events   │  │   /scenarios │                        │
-│  └──────┬───────┘  └──────┬───────┘                         │
-│  ┌──────┴─────────────────┴──────────────┐                  │
-│  │       SimPy Simulation Engine         │                  │
-│  │  • Shipment lifecycle transitions     │                  │
-│  │  • Warehouse load fluctuations        │                  │
-│  │  • Route traffic / weather updates    │                  │
-│  │  • Random disruptions                 │                  │
-│  └──────────────────┬────────────────────┘                  │
-│  ┌──────────────────┴────────────────────┐                  │
-│  │   PostgreSQL 16  (SQLAlchemy ORM)     │                  │
-│  │  shipments  •  warehouse_state        │                  │
-│  │  carrier_performance  •  routes       │                  │
-│  │  simulation_events                    │                  │
-│  └───────────────────────────────────────┘                  │
-└─────────────────────────────────────────────────────────────┘
-```
+This repo contains:
 
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| API | FastAPI + Uvicorn |
-| Simulation | SimPy (discrete-event) |
-| ORM | SQLAlchemy 2.0 |
-| Database | PostgreSQL 16 |
-| Data | Pandas, NumPy |
-| Package Manager | uv |
+* **Backend** (`backend/`): FastAPI API + SimPy discrete-event simulator + LangGraph agent + Postgres/PostGIS persistence.
+* **Frontend** (`frontend/`): Next.js dashboard UI that visualizes the system state and decisions.
 
 ---
 
-## Prerequisites
+## What the project does
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| [Docker](https://docs.docker.com/get-docker/) | 24 + | Run Postgres (+ optional full-stack) |
-| [Docker Compose](https://docs.docker.com/compose/) | v2 + | Orchestrate services |
-| [uv](https://docs.astral.sh/uv/getting-started/installation/) | 0.5 + | Python package manager (local dev only) |
-| Python | 3.11 + | Runtime (local dev only) |
+### 1) Simulates operations
 
-> **Only Docker is required** to run the full stack.  
-> `uv` and Python are only needed for local development without Docker.
+The simulation engine (`backend/app/simulation.py`) runs continuously and updates the database each tick:
+
+* advances shipment status (`created → dispatched → in_transit → delivered`, plus `delayed` / `failed`)
+* fluctuates warehouse load + congestion
+* updates route traffic + weather
+* occasionally injects disruptions (pickup failures, ETA drift, carrier degradation, congestion spikes)
+* records every noteworthy change as a row in `simulation_events`
+
+### 2) Exposes a real-time API
+
+FastAPI routers (`backend/app/routers/`) expose read and control endpoints:
+
+* list shipments/warehouses/carriers/routes
+* retrieve the event stream
+* create shipments and trigger scenario endpoints to force disruptions
+* return GeoJSON for routes/points (PostGIS-backed) for map rendering
+
+### 3) Runs an AI agent loop
+
+The agent loop (`backend/app/ai_agent/agent.py`) runs in the background alongside the simulator:
+
+* warm-starts an ML delay-risk model on synthetic data, then retrains it from resolved learning outcomes (`backend/app/ai_agent/risk_models.py`)
+* compiles a LangGraph pipeline (`backend/app/ai_agent/graph.py`, `backend/app/ai_agent/nodes.py`)
+* on each cycle, scans DB state/events and produces:
+  * a structured set of detected risks
+  * a decision recommendation with evidence + confidence
+  * (optionally) an LLM-generated natural-language summary
+* writes every decision to `decision_log` so the UI can show history and approvals
+* snapshots delay-risk model features into decision evidence, resolves outcomes, and periodically retrains the delay model with real learning samples
+
+### 4) Enables action + approval workflows
+
+Two ways actions can happen:
+
+* **Agent approval workflow**: `POST /api/agent/approve/{decision_id}` executes the recommended action when an operator approves.
+* **Direct operator actions**: `POST /api/actions/*` endpoints let the UI trigger actions directly (for demo/MVP flows).
 
 ---
 
-## � Getting the database schema
-
-`backend/schema.sql` contains the full PostgreSQL DDL — all tables, enum types, indexes, and column defaults — matching the SQLAlchemy models exactly.
-
-### How it is applied automatically (Docker)
-
-`schema.sql` is mounted into the Postgres container at  
-`/docker-entrypoint-initdb.d/schema.sql`.  
-Postgres runs every file in that directory **once**, on first boot (when the data volume is empty).  
-So after `docker compose up`, the schema is already in place — no extra step needed.
+## Architecture (high-level)
 
 ```
-docker-entrypoint-initdb.d/
-└── schema.sql   ← applied automatically on first postgres start
-```
-
-### Apply manually (existing Postgres)
-
-If you're connecting to your own Postgres instance instead of the Docker one:
-
-```bash
-# from the backend/ folder
-psql -h localhost -U postgres -d cc2_db -f schema.sql
-```
-
-Or if using `docker compose exec` after the container is already running:
-
-```bash
-docker compose exec -T postgres \
-  psql -U postgres -d cc2_db -f /docker-entrypoint-initdb.d/schema.sql
-```
-
-### Inspect or dump the schema from a running container
-
-```bash
-# interactive psql shell
-docker compose exec postgres psql -U postgres -d cc2_db
-
-# inside psql:
-\dt                        -- list all tables
-\d shipments               -- describe a specific table
-\dT+                       -- list all custom enum types
-
-# dump DDL to a local file (from host)
-docker compose exec -T postgres \
-  pg_dump -s -U postgres cc2_db > schema_export.sql
-```
-
-### Reset the database completely
-
-```bash
-# stop containers and delete the data volume
-docker compose down -v
-
-# start fresh — schema.sql is re-applied automatically
-docker compose up -d
+┌───────────────────────────────────────────────────────────────────────┐
+│                               Frontend                                │
+│                        Next.js dashboard (React)                       │
+│  - consumes REST API + renders maps, tables, decision timelines        │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                │ HTTP (JSON)
+┌───────────────────────────────┴───────────────────────────────────────┐
+│                                Backend                                 │
+│                                FastAPI                                 │
+│  Routers: /api/data, /api/simulate, /api/geo, /api/agent, /api/actions │
+│                                                                       │
+│  Background services (started on app startup):                          │
+│   1) SimPy Simulation thread  → updates entities + writes events        │
+│   2) LangGraph Agent thread    → detects risks + logs decisions         │
+│   3) Lifecycle manager         → keeps population of active shipments   │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                │ SQLAlchemy
+┌───────────────────────────────┴───────────────────────────────────────┐
+│                         PostgreSQL 16 + PostGIS                         │
+│  Tables: shipments, warehouse_state, carrier_performance, routes,       │
+│         simulation_events, decision_log                                 │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## �🐳 Option A — Full stack with Docker (recommended)
+## Tech stack
 
-Everything — Postgres **and** the API — starts with a single command.  
-No Python, no `uv`, no manual setup needed on the host machine.
+### Backend
+
+* **FastAPI** (API framework) + **Uvicorn** (ASGI server)
+* **SQLAlchemy 2.x** (ORM)
+* **PostgreSQL 16** + **PostGIS** (spatial types: points, linestrings)
+* **GeoAlchemy2 + Shapely** (geometry conversions)
+* **SimPy** (discrete-event simulation)
+* **LangGraph** (agent graph orchestration)
+* **google-genai** (Gemini client used by the LLM node; optional)
+* **scikit-learn / pandas / numpy** (feature engineering + ML delay-risk model)
+* **uv** (Python packaging + lockfile)
+
+### Frontend
+
+* **Next.js 15** (React 19)
+* **TypeScript**
+* **Tailwind CSS** + **shadcn/ui** (Radix primitives)
+* Charts: **Recharts**
+* Maps: **react-simple-maps**
+
+---
+
+## Repository tour (what each folder/file is for)
+
+### Root
+
+* `README.md` — this document
+* `docs/risk-model-feedback-loop.md` — how resolved learning outcomes retrain the delay-risk model
+* `pyproject.toml` — intentionally minimal (real configs live in `backend/` and `frontend/`)
+* `uv.lock` — lockfile for the root (mostly unused; backend has its own)
+
+### `backend/` (FastAPI + simulation + agent)
+
+* `backend/main.py` — FastAPI entrypoint; starts background services; defines `/health`
+* `backend/app/`
+  * `config.py` — environment variables (DB URL, tick intervals, thresholds, origins)
+  * `database.py` — SQLAlchemy engine/session
+  * `models.py` — ORM schema (shipments, routes, events, decision log)
+  * `schemas.py` — Pydantic response/request models
+  * `seed.py` — seed initial warehouses/carriers/routes/shipments
+  * `simulation.py` — SimPy simulation engine producing live events
+  * `lifecycle.py` — keeps system “alive” (maintains active shipment set)
+  * `routers/`
+    * `data.py` — read APIs (shipments/warehouses/carriers/routes/events)
+    * `simulate.py` — simulation control + scenario triggers
+    * `geo.py` — geo endpoints returning GeoJSON (for map UI)
+    * `agent.py` — agent endpoints (risks, decisions, approvals, summaries)
+    * `actions.py` — direct operator action endpoints (alert/reroute/switch carrier)
+  * `ai_agent/` — core decision engine
+    * `agent.py` — background `AgentLoop`
+    * `graph.py` / `nodes.py` — LangGraph pipeline definition
+    * `risk_models.py` — ML delay risk model with synthetic warm-start + hybrid retraining
+    * `actions.py` — action implementations used by agent + operator endpoints
+    * `llm_client.py` — Gemini client + fallback behaviors
+    * `learning.py` — metrics/learning loop fed by outcomes, including delay-model retraining samples
+* `backend/docker-compose.yaml` — local dev stack (Postgres + API)
+* `backend/Dockerfile` — container build used for Railway
+* `backend/railway.toml` — Railway service config (healthcheck etc.)
+* `backend/schema.sql` — DDL snapshot (useful for inspection/bootstrapping)
+* `backend/tests/` — pytest suite
+
+### `frontend/` (Next.js dashboard)
+
+* `frontend/app/` — route tree (Next App Router pages)
+* `frontend/components/` — UI building blocks (tables, charts, maps, reasoning)
+* `frontend/lib/api.ts` — API client + `NEXT_PUBLIC_API_URL` wiring
+* `frontend/package.json` — frontend deps + scripts
+
+---
+
+## How the backend starts (important)
+
+`backend/main.py` uses FastAPI lifespan to start heavy work in a **background task**:
+
+1. wait for Postgres (`SELECT 1` retry loop)
+2. ensure PostGIS extension exists (`CREATE EXTENSION IF NOT EXISTS postgis`)
+3. `Base.metadata.create_all(...)` to create/verify tables
+4. seed initial data (idempotent)
+5. start simulation thread
+6. start agent loop thread
+7. start lifecycle manager
+
+`GET /health` always returns HTTP 200 with `{ ready: boolean }` so container health checks don’t fail during the longer initialization.
+
+---
+
+## Running locally
+
+### Prerequisites
+
+* Docker + Docker Compose
+* For host-based backend dev: Python 3.11+ + `uv`
+* For frontend dev: Node.js (npm)
+
+### Option A — backend + database via Docker Compose
+
+From the `backend/` folder:
 
 ```bash
-# 1. Clone the repo and enter the backend folder
-git clone https://github.com/kanishjn/CC2.git
-cd CC2/backend
-
-# 2. Start both services (Postgres + FastAPI)
 docker compose up --build
-
-# 3. (Optional) Run in the background
-docker compose up -d --build
 ```
 
-On first boot Docker will:
-- Pull `postgres:16` and create the `cc2_db` database
-- Wait until Postgres passes its health check
-- Install Python dependencies inside the `api` container via `uv`
-- Run database migrations (create all tables)
-- Seed warehouses, carriers, routes, and shipments
-- Start the background simulation engine
-- Expose the API on **http://localhost:8000**
+API:
 
-### Useful Docker commands
+* http://localhost:8000
+* Swagger docs: http://localhost:8000/docs
+
+### Option B — Postgres in Docker, FastAPI on your machine (best for debugging)
 
 ```bash
-# View live logs
-docker compose logs -f
-
-# View only API logs
-docker compose logs -f api
-
-# Stop all services
-docker compose down
-
-# Stop and wipe the database volume (full reset)
-docker compose down -v
-
-# Restart just the API (after a code change)
-docker compose restart api
-```
-
----
-
-## 💻 Option B — Local development (Postgres in Docker, API on host)
-
-Use this when you want hot-reload and direct debugger access.
-
-```bash
-# 1. Start only the Postgres container
+cd backend
 docker compose up postgres -d
-
-# 2. Copy the example env file
 cp .env.example .env
-# DATABASE_URL in .env already points to localhost:5432 — no change needed
-
-# 3. Install Python dependencies
 uv sync
-
-# 4. Start the API with hot-reload
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The API will be live at **http://localhost:8000**.  
-Interactive docs (Swagger UI) at **http://localhost:8000/docs**.
+### Frontend (Next.js)
 
-On startup the server will:
-1. Wait for Postgres to accept connections (retries automatically)
-2. Create all database tables
-3. Seed initial data (skipped if already present)
-4. Start the background simulation engine
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
----
+Set the API base URL:
 
-## Environment variables
-
-Copy `.env.example` to `.env` and adjust as needed.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/cc2_db` | Postgres connection string |
-| `SIM_TICK_INTERVAL` | `2.0` | Real-seconds between simulation ticks |
-| `SIM_SPEED` | `10.0` | Sim-minutes advanced per real-second |
-| `SEED_WAREHOUSES` | `5` | Number of warehouses to seed |
-| `SEED_CARRIERS` | `8` | Number of carriers to seed |
-| `SEED_ROUTES` | `12` | Number of routes to seed |
-| `SEED_SHIPMENTS` | `20` | Number of shipments to seed |
-
-> When running the full Docker stack, environment variables are set directly in `docker-compose.yaml` and `.env` is **not** used by the container.
+* Local dev: defaults to `http://localhost:8000`
+* For deployments: set `NEXT_PUBLIC_API_URL=https://<your-backend-domain>`
 
 ---
 
-## API Endpoints
+## Environment variables (backend)
+
+Backend env vars live in `backend/.env.example` and are read by `backend/app/config.py`.
+
+Common ones:
+
+* `DATABASE_URL` — Postgres connection string
+* `SIM_TICK_INTERVAL` — real seconds between ticks (default `2.0`)
+* `SIM_SPEED` — sim minutes advanced per real second (default `10.0`)
+* `SEED_WAREHOUSES`, `SEED_CARRIERS`, `SEED_ROUTES`, `SEED_SHIPMENTS`
+* `AGENT_TICK_INTERVAL` — seconds between agent cycles
+* thresholds such as `RISK_THRESHOLD`, `BOTTLENECK_THRESHOLD`, `CARRIER_RELIABILITY_THRESHOLD`
+* delay-model retraining knobs such as `RISK_MODEL_RETRAIN_INTERVAL_CYCLES`, `RISK_MODEL_RETRAIN_MIN_SAMPLES`, `RISK_MODEL_RETRAIN_SYNTHETIC_SAMPLES`, `RISK_MODEL_REAL_SAMPLE_WEIGHT`
+* LLM settings such as `GEMINI_API_KEY`, `LLM_CALL_COOLDOWN`
+* CORS allowlist: `ALLOWED_ORIGINS`
+
+## Risk model feedback loop
+
+The delay-risk model starts with synthetic data so the agent can score shipments immediately after startup. As the agent acts, delay-risk decisions store their exact model feature snapshot in `decision_log.evidence`. The Learn step later resolves those decisions into actual labels (`success` means within SLA, `failed` means missed/projected-missed SLA or failed) and periodically retrains the active model with a hybrid synthetic + real dataset.
+
+See `docs/risk-model-feedback-loop.md` for the full flow, configuration, and current limitations.
+
+---
+
+## API overview
+
+All backend endpoints are served under the FastAPI app in `backend/main.py`.
 
 ### Health
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | Service info |
-| GET | `/health` | Health check |
-| GET | `/docs` | Swagger UI |
 
-### Data (read)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/shipments` | List shipments (filter by `?status=`) |
-| GET | `/api/shipments/{id}` | Get single shipment |
-| GET | `/api/warehouses` | List warehouses (sorted by congestion) |
-| GET | `/api/warehouses/{id}` | Get single warehouse |
-| GET | `/api/carriers` | List carriers (sorted by reliability) |
-| GET | `/api/carriers/{id}` | Get single carrier |
-| GET | `/api/routes` | List all routes |
-| GET | `/api/routes/{id}` | Get single route |
-| GET | `/api/events` | List events (filter by `?event_type=`, `?entity_id=`) |
+* `GET /` — service info (includes `status: starting|ready`)
+* `GET /health` — liveness + readiness flag
 
-### Simulation Control
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/simulate/start` | Start the simulation engine |
-| POST | `/api/simulate/stop` | Stop the simulation engine |
-| GET | `/api/simulate/status` | Engine status + entity counts |
-| POST | `/api/simulate/warehouse-congestion` | Trigger warehouse congestion scenario |
-| POST | `/api/simulate/carrier-failure` | Trigger carrier failure cascade |
-| POST | `/api/simulate/traffic-spike` | Trigger traffic spike on routes |
-| POST | `/api/simulate/pickup-failure` | Trigger a pickup failure |
-| POST | `/api/simulate/eta-drift` | Trigger ETA drift on shipments |
-| POST | `/api/simulate/create-shipment` | Create a new shipment on the fly |
+### Core data (read)
+
+* `GET /api/shipments`
+* `GET /api/warehouses`
+* `GET /api/carriers`
+* `GET /api/routes`
+* `GET /api/events`
+
+### Simulation control
+
+* `POST /api/simulate/start`
+* `POST /api/simulate/stop`
+* `GET /api/simulate/status`
+* scenario triggers like `warehouse-congestion`, `traffic-spike`, `pickup-failure`, `eta-drift`, etc.
+
+### Agent endpoints
+
+* `GET /api/agent/status`
+* `GET /api/agent/risks`
+* `GET /api/agent/decisions`
+* `POST /api/agent/analyze` (manual cycle)
+* `POST /api/agent/approve/{decision_id}` (approval workflow)
+* `GET /api/agent/summary`
+
+### Operator actions
+
+* `POST /api/actions/send-alert`
+* `POST /api/actions/reroute`
+* `POST /api/actions/switch-carrier` (if enabled in `actions.py`)
 
 ---
 
-## Database Schema
+## Database schema (conceptual)
 
-### `shipments`
-| Column | Type | Description |
-|--------|------|-------------|
-| `shipment_id` | VARCHAR(64) | Unique identifier |
-| `origin` | VARCHAR(128) | Source location |
-| `destination` | VARCHAR(128) | Target location |
+These are the main tables.
+
+* `shipments` — shipments with status, ETA/SLA, and optional geometry points
+* `warehouse_state` — capacity/load/queue/congestion and optional geometry
+* `carrier_performance` — reliability, delay probability, pickup rate, totals
+* `routes` — origin/destination, distance, traffic/weather, optional line geometry
+* `simulation_events` — immutable event stream emitted by simulator
+* `decision_log` — agent decision history + approval / outcome tracking
+
+For full DDL, see `backend/schema.sql`.
+
+---
+
+## Deployment notes (Railway/Vercel)
+
+This repo has been used with:
+
+* **Railway** for backend + Postgres
+  * `backend/Dockerfile` runs `uvicorn main:app` on port `8000`
+  * `backend/railway.toml` sets healthcheck path `/health`
+* **Vercel** for frontend
+  * remember `NEXT_PUBLIC_API_URL` must include `https://`
+
+---
+
+## Tests
+
+Backend tests live in `backend/tests/`.
+
+```bash
+cd backend
+uv run pytest
+```
+
 | `carrier` | VARCHAR(64) | Assigned carrier ID |
 | `route_id` | VARCHAR(64) | Route ID |
 | `eta` | TIMESTAMP | Estimated time of arrival |

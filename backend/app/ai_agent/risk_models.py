@@ -4,6 +4,10 @@ bottleneck and carrier degradation detection.
 """
 
 import logging
+import threading
+from datetime import datetime
+from typing import Sequence
+
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
@@ -25,49 +29,108 @@ FEATURE_NAMES = [
 
 
 class DelayRiskModel:
-    """Gradient Boosting model trained on synthetic logistics data."""
+    """Gradient Boosting model with synthetic warm-start and real-data retraining."""
 
     def __init__(self):
         self.model: GradientBoostingClassifier | None = None
         self.scaler: StandardScaler | None = None
         self._trained = False
+        self._lock = threading.RLock()
+        self._training_metadata: dict = {
+            "source": "untrained",
+            "synthetic_samples": 0,
+            "real_samples": 0,
+            "accuracy": None,
+            "trained_at": None,
+        }
 
     @property
     def is_trained(self) -> bool:
-        return self._trained
+        with self._lock:
+            return self._trained
 
-    def train(self, n_samples: int = 5000):
-        """Train the model on synthetic data derived from realistic logistics patterns."""
+    def train(
+        self,
+        n_samples: int = 5000,
+        training_samples: Sequence[tuple[dict, int]] | None = None,
+        real_sample_weight: float = 4.0,
+    ) -> dict:
+        """Train on synthetic data, optionally weighted with resolved real outcomes."""
         X, y = self._generate_synthetic_data(n_samples)
-        self.scaler = StandardScaler()
-        X_scaled = self.scaler.fit_transform(X)
-        self.model = GradientBoostingClassifier(
+        sample_weight = np.ones(len(y), dtype=float)
+        real_count = 0
+
+        if training_samples:
+            X_real, y_real = self._samples_to_arrays(training_samples)
+            if len(y_real) > 0:
+                X = np.vstack([X, X_real])
+                y = np.concatenate([y, y_real])
+                real_count = len(y_real)
+                sample_weight = np.concatenate([
+                    sample_weight,
+                    np.full(real_count, real_sample_weight, dtype=float),
+                ])
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        model = GradientBoostingClassifier(
             n_estimators=100,
             max_depth=4,
             learning_rate=0.1,
             random_state=42,
         )
-        self.model.fit(X_scaled, y)
-        self._trained = True
-        accuracy = self.model.score(X_scaled, y)
-        log.info("Delay risk model trained — accuracy: %.3f", accuracy)
+        model.fit(X_scaled, y, sample_weight=sample_weight)
+        accuracy = model.score(X_scaled, y)
+
+        metadata = {
+            "source": "hybrid" if real_count else "synthetic",
+            "synthetic_samples": int(n_samples),
+            "real_samples": int(real_count),
+            "accuracy": round(float(accuracy), 4),
+            "trained_at": datetime.utcnow().isoformat(),
+        }
+        with self._lock:
+            self.scaler = scaler
+            self.model = model
+            self._trained = True
+            self._training_metadata = metadata
+
+        log.info(
+            "Delay risk model trained — source=%s synthetic=%d real=%d accuracy=%.3f",
+            metadata["source"], n_samples, real_count, accuracy,
+        )
+        return metadata
 
     def predict(self, features: dict) -> float:
         """Return delay probability (0–1) for a single shipment."""
-        if not self._trained:
+        with self._lock:
+            model = self.model
+            scaler = self.scaler
+            trained = self._trained
+
+        if not trained or model is None or scaler is None:
             return self._heuristic_predict(features)
 
         X = np.array([[features[f] for f in FEATURE_NAMES]])
-        X_scaled = self.scaler.transform(X)
-        proba = self.model.predict_proba(X_scaled)[0]
+        X_scaled = scaler.transform(X)
+        proba = model.predict_proba(X_scaled)[0]
         return float(proba[1]) if len(proba) > 1 else float(proba[0])
 
     def get_feature_importance(self) -> dict[str, float]:
         """Return feature importances from the trained model."""
-        if not self._trained:
+        with self._lock:
+            model = self.model
+            trained = self._trained
+
+        if not trained or model is None:
             return {}
-        importances = self.model.feature_importances_
+        importances = model.feature_importances_
         return dict(zip(FEATURE_NAMES, [round(float(v), 4) for v in importances]))
+
+    def get_training_summary(self) -> dict:
+        """Return metadata about the currently loaded training run."""
+        with self._lock:
+            return dict(self._training_metadata)
 
     def _heuristic_predict(self, features: dict) -> float:
         """Fallback weighted heuristic when model is not yet trained."""
@@ -82,6 +145,16 @@ class DelayRiskModel:
             + 0.15 * max(0.0, min(1.0, 1 - features["eta_sla_buffer_hours"] / 24))
         )
         return float(np.clip(score, 0.0, 1.0))
+
+    @staticmethod
+    def _samples_to_arrays(samples: Sequence[tuple[dict, int]]):
+        """Convert validated feature dictionaries and labels to sklearn arrays."""
+        rows = []
+        labels = []
+        for features, label in samples:
+            rows.append([float(features[name]) for name in FEATURE_NAMES])
+            labels.append(int(label))
+        return np.array(rows, dtype=float), np.array(labels, dtype=int)
 
     @staticmethod
     def _generate_synthetic_data(n: int):

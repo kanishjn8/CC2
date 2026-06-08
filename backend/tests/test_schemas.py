@@ -239,3 +239,4 @@ class TestAgentStatusOut:
             pending_approvals=2,
         )
         assert s.running is True
+        assert s.model_training == {}

@@ -91,6 +91,7 @@ def agent_status(db: Session = Depends(get_db)):
         running=agent_loop.running,
         cycle_count=agent_loop.cycle_count,
         model_trained=agent_loop.delay_model.is_trained,
+        model_training=agent_loop.delay_model.get_training_summary(),
         total_decisions=db.query(DecisionLog).count(),
         pending_approvals=db.query(DecisionLog).filter_by(status="pending_approval").count(),
     )

@@ -166,6 +166,7 @@ class AgentStatusOut(BaseModel):
     running: bool
     cycle_count: int
     model_trained: bool
+    model_training: dict = Field(default_factory=dict)
     total_decisions: int
     pending_approvals: int
 

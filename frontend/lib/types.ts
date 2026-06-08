@@ -114,6 +114,7 @@ export interface AgentStatus {
   running: boolean;
   cycle_count: number;
   model_trained: boolean;
+  model_training: Record<string, unknown>;
   total_decisions: number;
   pending_approvals: number;
 }
