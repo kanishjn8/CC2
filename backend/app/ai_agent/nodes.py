@@ -563,12 +563,20 @@ def act_node(state: AgentState) -> dict:
                     shipment_obj = db.query(Shipment).filter_by(shipment_id=sid).first()
                     if shipment_obj:
                         old_route = db.query(Route).filter_by(route_id=shipment_obj.route_id).first() if shipment_obj.route_id else None
-                        best_route = (
+                        candidate_routes = (
                             db.query(Route)
                             .filter(Route.route_id != shipment_obj.route_id)
                             .filter(Route.traffic_level.in_([TrafficLevel.low, TrafficLevel.moderate]))
                             .order_by(Route.weather_factor.asc())
-                            .first()
+                            .all()
+                        )
+                        same_lane_routes = [
+                            r for r in candidate_routes
+                            if r.origin == shipment_obj.origin
+                            and r.destination == shipment_obj.destination
+                        ]
+                        best_route = same_lane_routes[0] if same_lane_routes else (
+                            candidate_routes[0] if candidate_routes else None
                         )
                         if old_route:
                             action_context["old_route_geometry"] = _linestring_geojson(old_route.path)

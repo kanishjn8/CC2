@@ -14,7 +14,7 @@ from sklearn.preprocessing import StandardScaler
 
 from app.config import BOTTLENECK_THRESHOLD, CARRIER_RELIABILITY_THRESHOLD
 
-log = logging.getLogger("cc2.risk_models")
+log = logging.getLogger("Routesense.risk_models")
 
 FEATURE_NAMES = [
     "distance",

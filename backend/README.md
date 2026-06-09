@@ -130,8 +130,10 @@ Interactive docs (Swagger UI) at **http://localhost:8000/docs**.
 On startup the server will:
 1. Wait for Postgres to accept connections (retries automatically)
 2. Create all database tables
-3. Seed initial data (skipped if already present)
+3. Seed initial data (skipped if already present), including ship routes from `app/data/maritime_routes.json`
 4. Start the background simulation engine
+
+Seeded route geometries are local cached maritime polylines. No external routing API is called during ticks.
 
 ---
 

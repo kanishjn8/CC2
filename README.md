@@ -19,7 +19,7 @@ The simulation engine (`backend/app/simulation.py`) runs continuously and update
 
 * advances shipment status (`created → dispatched → in_transit → delivered`, plus `delayed` / `failed`)
 * fluctuates warehouse load + congestion
-* updates route traffic + weather
+* updates route traffic + weather over locally cached maritime route geometries
 * occasionally injects disruptions (pickup failures, ETA drift, carrier degradation, congestion spikes)
 * records every noteworthy change as a row in `simulation_events`
 
@@ -140,6 +140,7 @@ Two ways actions can happen:
     * `actions.py` — action implementations used by agent + operator endpoints
     * `llm_client.py` — Gemini client + fallback behaviors
     * `learning.py` — metrics/learning loop fed by outcomes, including delay-model retraining samples
+  * `data/maritime_routes.json` — offline port coordinates and maritime waypoints used to seed ship routes
 * `backend/docker-compose.yaml` — local dev stack (Postgres + API)
 * `backend/Dockerfile` — container build used for Railway
 * `backend/railway.toml` — Railway service config (healthcheck etc.)

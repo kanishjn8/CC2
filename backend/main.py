@@ -1,5 +1,5 @@
 """
-CC2 — Logistics Simulation & Data Layer
+Routesense — Logistics Simulation & Data Layer
 FastAPI application entry point.
 """
 
@@ -75,7 +75,7 @@ async def _startup_task():
     global _ready
     try:
         log.info("=" * 60)
-        log.info("CC2 Logistics Platform — starting up")
+        log.info("CCRoutesense2 Logistics Platform — starting up")
         log.info("=" * 60)
 
         # Run blocking DB wait in a thread so we don't block the event loop
@@ -113,7 +113,7 @@ async def _startup_task():
 
         _ready = True
         log.info("=" * 60)
-        log.info("CC2 is ready 🚀")
+        log.info("Routesense is ready 🚀")
         log.info("=" * 60)
 
     except Exception as exc:

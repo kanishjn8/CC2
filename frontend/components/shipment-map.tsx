@@ -17,6 +17,9 @@ import { cn } from "@/lib/utils"
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
 const INDIA_STATES_URL =
   "https://gist.githubusercontent.com/jbrobst/56c13bbbf9d97d187fea01ca62ea5112/raw/e388c4cae20aa53cb5090210a42ebb9b765c0a36/india_states.geojson"
+const MAP_PROJECTION_SCALE = 150
+const WORLD_COPY_WIDTH = 2 * Math.PI * MAP_PROJECTION_SCALE
+const WORLD_WRAP_OFFSETS = [-1, 0, 1]
 
 // ── Shipment city coordinates [lon, lat] — must match backend seed.py ────────
 const CITY_COORDS: Record<string, [number, number]> = {
@@ -247,6 +250,14 @@ function isNearIndia(coords: [number, number]): boolean {
   return lon >= 68 && lon <= 97 && lat >= 6 && lat <= 37
 }
 
+function normalizeLongitude(lon: number): number {
+  return ((((lon + 180) % 360) + 360) % 360) - 180
+}
+
+function normalizeCoordinates(coords: [number, number]): [number, number] {
+  return [normalizeLongitude(coords[0]), coords[1]]
+}
+
 // ── Zoom level thresholds (Google Maps style) ────────────────────────────────
 // 1.0–1.8  : World — countries only, no labels
 // 1.8–3.5  : Country labels appear (major first)
@@ -271,7 +282,10 @@ function ShipmentMapInner({ shipments, rerouteData, carrierSwitchData }: Shipmen
   const mapRef = useRef<HTMLDivElement>(null)
 
   const handleMoveEnd = useCallback((pos: { coordinates: [number, number]; zoom: number }) => {
-    setPosition(pos)
+    setPosition({
+      ...pos,
+      coordinates: normalizeCoordinates(pos.coordinates),
+    })
   }, [])
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -280,15 +294,23 @@ function ShipmentMapInner({ shipments, rerouteData, carrierSwitchData }: Shipmen
     setPosition((prev) => {
       const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18
       const newZoom = Math.min(Math.max(prev.zoom * factor, 1), 20)
-      return { ...prev, zoom: newZoom }
+      return { ...prev, coordinates: normalizeCoordinates(prev.coordinates), zoom: newZoom }
     })
   }, [])
 
   const handleZoomIn = useCallback(() => {
-    setPosition((p) => ({ ...p, zoom: Math.min(p.zoom * 1.5, 20) }))
+    setPosition((p) => ({
+      ...p,
+      coordinates: normalizeCoordinates(p.coordinates),
+      zoom: Math.min(p.zoom * 1.5, 20),
+    }))
   }, [])
   const handleZoomOut = useCallback(() => {
-    setPosition((p) => ({ ...p, zoom: Math.max(p.zoom / 1.5, 1) }))
+    setPosition((p) => ({
+      ...p,
+      coordinates: normalizeCoordinates(p.coordinates),
+      zoom: Math.max(p.zoom / 1.5, 1),
+    }))
   }, [])
   const handleReset = useCallback(() => {
     setPosition({ coordinates: [0, 20], zoom: 1 })
@@ -376,7 +398,7 @@ function ShipmentMapInner({ shipments, rerouteData, carrierSwitchData }: Shipmen
     <div ref={mapRef} className="relative w-full" onWheel={handleWheel}>
       <ComposableMap
         projection="geoMercator"
-        projectionConfig={{ scale: 150, center: [0, 20] }}
+        projectionConfig={{ scale: MAP_PROJECTION_SCALE, center: [0, 20] }}
         style={{ width: "100%", height: "auto" }}
         viewBox="0 0 800 450"
       >
@@ -386,261 +408,273 @@ function ShipmentMapInner({ shipments, rerouteData, carrierSwitchData }: Shipmen
           onMoveEnd={handleMoveEnd}
           minZoom={1}
           maxZoom={20}
-          translateExtent={[[-200, -200], [1000, 650]]}
+          translateExtent={[[-100000, -200], [100000, 650]]}
         >
-          {/* Layer 1: World countries */}
-          <Geographies geography={GEO_URL}>
-            {({ geographies }) =>
-              geographies.map((geo) => (
-                <Geography
-                  key={geo.rsmKey}
-                  geography={geo}
-                  fill="hsl(240, 4%, 10%)"
-                  stroke="hsl(240, 3.7%, 20%)"
-                  strokeWidth={0.5 * inv}
-                  style={{
-                    default: { outline: "none" },
-                    hover: { fill: "hsl(240, 4%, 14%)", outline: "none" },
-                    pressed: { outline: "none" },
-                  }}
-                />
-              ))
-            }
-          </Geographies>
-
-          {/* Layer 2: India state boundaries (zoom ≥ 3.5) */}
-          {showIndiaStates && (
-            <Geographies geography={INDIA_STATES_URL}>
-              {({ geographies }) =>
-                geographies.map((geo) => (
-                  <Geography
-                    key={geo.rsmKey}
-                    geography={geo}
-                    fill="transparent"
-                    stroke="hsl(200, 50%, 25%)"
-                    strokeWidth={0.3 * inv}
-                    style={{
-                      default: { outline: "none" },
-                      hover: { fill: "hsl(200, 50%, 12%)", outline: "none" },
-                      pressed: { outline: "none" },
-                    }}
-                  />
-                ))
-              }
-            </Geographies>
-          )}
-
-          {/* Layer 3: Country name labels */}
-          {showCountryLabels && (
-            <Geographies geography={GEO_URL}>
-              {({ geographies }) =>
-                geographies
-                  .filter((geo) => {
-                    const name: string = geo.properties?.name ?? ""
-                    if (!name || SKIP_LABELS.has(name)) return false
-                    return MAJOR_COUNTRIES.has(name) || showMinorCountryLabels
-                  })
-                  .map((geo) => {
-                    const centroid = geoCentroid(geo) as [number, number]
-                    const name: string = geo.properties?.name ?? ""
-                    if (centroid[0] === 0 && centroid[1] === 0) return null
-                    return (
-                      <Marker key={`ctry-${name}`} coordinates={centroid}>
-                        <text
-                          textAnchor="middle"
-                          alignmentBaseline="central"
-                          style={{
-                            fontFamily: "Inter, sans-serif",
-                            fontSize: `${countryLabelSize}px`,
-                            fill: MAJOR_COUNTRIES.has(name)
-                              ? "hsl(240, 5%, 38%)"
-                              : "hsl(240, 3%, 28%)",
-                            fontWeight: MAJOR_COUNTRIES.has(name) ? 600 : 400,
-                            pointerEvents: "none",
-                            userSelect: "none",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.5px",
-                          }}
-                        >
-                          {name}
-                        </text>
-                      </Marker>
-                    )
-                  })
-              }
-            </Geographies>
-          )}
-
-          {/* Layer 4: India state name labels (zoom ≥ 4) */}
-          {showStateLabels && (
-            <Geographies geography={INDIA_STATES_URL}>
-              {({ geographies }) =>
-                geographies.map((geo) => {
-                  const centroid = geoCentroid(geo) as [number, number]
-                  const name: string = geo.properties?.st_nm ?? ""
-                  if (!name || (centroid[0] === 0 && centroid[1] === 0)) return null
-                  return (
-                    <Marker key={`state-${name}`} coordinates={centroid}>
-                      <text
-                        textAnchor="middle"
-                        alignmentBaseline="central"
-                        style={{
-                          fontFamily: "Inter, sans-serif",
-                          fontSize: `${stateLabelSize}px`,
-                          fill: "hsl(200, 40%, 50%)",
-                          fontWeight: 500,
-                          pointerEvents: "none",
-                          userSelect: "none",
-                        }}
-                      >
-                        {name}
-                      </text>
-                    </Marker>
-                  )
-                })
-              }
-            </Geographies>
-          )}
-
-          {/* Layer 5: Geographic city dots (non-shipment) */}
-          {geoCities.map((city) => {
-            const r = city.size === "lg" ? cityDotR * 1.2 : city.size === "md" ? cityDotR : cityDotR * 0.7
-            return (
-              <Marker key={`geo-${city.name}`} coordinates={city.coords}>
-                <circle
-                  r={r}
-                  fill="hsl(220, 15%, 45%)"
-                  stroke="hsl(0, 0%, 5%)"
-                  strokeWidth={0.5 * inv}
-                />
-                <text
-                  textAnchor="middle"
-                  y={-(r + cityLabelSize * 0.6)}
-                  style={{
-                    fontFamily: "Inter, sans-serif",
-                    fontSize: `${city.size === "lg" ? cityLabelSize : cityLabelSize * 0.85}px`,
-                    fill: "hsl(220, 10%, 55%)",
-                    fontWeight: city.size === "lg" ? 500 : 400,
-                    pointerEvents: "none",
-                    userSelect: "none",
-                  }}
-                >
-                  {city.name}
-                </text>
-              </Marker>
-            )
-          })}
-
-          {/* Layer 6: Shipment route arcs */}
-          {routeData.map(({ shipment, from, to }) => (
-            <g key={shipment.shipment_id}>
-              {/* Visible line (rendered first, behind hit area) */}
-              <Line
-                from={from}
-                to={to}
-                stroke={getRouteColor(shipment.status)}
-                strokeWidth={((shipment.status === "delayed" || shipment.status === "failed") ? 2 : 1.5) * inv}
-                strokeLinecap="round"
-                strokeDasharray={
-                  shipment.status === "in_transit" ? "6 4" :
-                  shipment.status === "delayed" ? "4 3" : undefined
+          {WORLD_WRAP_OFFSETS.map((wrapOffset) => (
+            <g
+              key={`world-copy-${wrapOffset}`}
+              transform={`translate(${wrapOffset * WORLD_COPY_WIDTH} 0)`}
+            >
+              {/* Layer 1: World countries */}
+              <Geographies geography={GEO_URL}>
+                {({ geographies }) =>
+                  geographies.map((geo) => (
+                    <Geography
+                      key={geo.rsmKey}
+                      geography={geo}
+                      fill="hsl(240, 4%, 10%)"
+                      stroke="hsl(240, 3.7%, 20%)"
+                      strokeWidth={0.5 * inv}
+                      style={{
+                        default: { outline: "none" },
+                        hover: { fill: "hsl(240, 4%, 14%)", outline: "none" },
+                        pressed: { outline: "none" },
+                      }}
+                    />
+                  ))
                 }
-                style={{
-                  opacity: hoveredShipment?.shipment_id === shipment.shipment_id ? 1 : 0.6,
-                  pointerEvents: "none",
-                }}
-                className={shipment.status === "in_transit" ? "animate-dash" : ""}
-              />
-              {/* Wide invisible hit area on top — pointerEvents:"stroke" captures events on transparent strokes */}
-              <Line
-                from={from}
-                to={to}
-                stroke="transparent"
-                strokeWidth={Math.max(12, 20 * inv)}
-                strokeLinecap="round"
-                style={{ cursor: "pointer", pointerEvents: "stroke" } as React.CSSProperties}
-                onMouseEnter={(evt: React.MouseEvent) => {
-                  setHoveredShipment(shipment)
-                  const rect = mapRef.current?.getBoundingClientRect()
-                  if (rect) {
-                    setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
+              </Geographies>
+
+              {/* Layer 2: India state boundaries (zoom ≥ 3.5) */}
+              {showIndiaStates && (
+                <Geographies geography={INDIA_STATES_URL}>
+                  {({ geographies }) =>
+                    geographies.map((geo) => (
+                      <Geography
+                        key={geo.rsmKey}
+                        geography={geo}
+                        fill="transparent"
+                        stroke="hsl(200, 50%, 25%)"
+                        strokeWidth={0.3 * inv}
+                        style={{
+                          default: { outline: "none" },
+                          hover: { fill: "hsl(200, 50%, 12%)", outline: "none" },
+                          pressed: { outline: "none" },
+                        }}
+                      />
+                    ))
                   }
-                }}
-                onMouseMove={(evt: React.MouseEvent) => {
-                  const rect = mapRef.current?.getBoundingClientRect()
-                  if (rect) {
-                    setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
+                </Geographies>
+              )}
+
+              {/* Layer 3: Country name labels */}
+              {showCountryLabels && (
+                <Geographies geography={GEO_URL}>
+                  {({ geographies }) =>
+                    geographies
+                      .filter((geo) => {
+                        const name: string = geo.properties?.name ?? ""
+                        if (!name || SKIP_LABELS.has(name)) return false
+                        return MAJOR_COUNTRIES.has(name) || showMinorCountryLabels
+                      })
+                      .map((geo) => {
+                        const centroid = geoCentroid(geo) as [number, number]
+                        const name: string = geo.properties?.name ?? ""
+                        if (centroid[0] === 0 && centroid[1] === 0) return null
+                        return (
+                          <Marker key={`ctry-${name}`} coordinates={centroid}>
+                            <text
+                              textAnchor="middle"
+                              alignmentBaseline="central"
+                              style={{
+                                fontFamily: "Inter, sans-serif",
+                                fontSize: `${countryLabelSize}px`,
+                                fill: MAJOR_COUNTRIES.has(name)
+                                  ? "hsl(240, 5%, 38%)"
+                                  : "hsl(240, 3%, 28%)",
+                                fontWeight: MAJOR_COUNTRIES.has(name) ? 600 : 400,
+                                pointerEvents: "none",
+                                userSelect: "none",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.5px",
+                              }}
+                            >
+                              {name}
+                            </text>
+                          </Marker>
+                        )
+                      })
                   }
-                }}
-                onMouseLeave={() => setHoveredShipment(null)}
-              />
+                </Geographies>
+              )}
+
+              {/* Layer 4: India state name labels (zoom ≥ 4) */}
+              {showStateLabels && (
+                <Geographies geography={INDIA_STATES_URL}>
+                  {({ geographies }) =>
+                    geographies.map((geo) => {
+                      const centroid = geoCentroid(geo) as [number, number]
+                      const name: string = geo.properties?.st_nm ?? ""
+                      if (!name || (centroid[0] === 0 && centroid[1] === 0)) return null
+                      return (
+                        <Marker key={`state-${name}`} coordinates={centroid}>
+                          <text
+                            textAnchor="middle"
+                            alignmentBaseline="central"
+                            style={{
+                              fontFamily: "Inter, sans-serif",
+                              fontSize: `${stateLabelSize}px`,
+                              fill: "hsl(200, 40%, 50%)",
+                              fontWeight: 500,
+                              pointerEvents: "none",
+                              userSelect: "none",
+                            }}
+                          >
+                            {name}
+                          </text>
+                        </Marker>
+                      )
+                    })
+                  }
+                </Geographies>
+              )}
+
+              {/* Layer 5: Geographic city dots (non-shipment) */}
+              {geoCities.map((city) => {
+                const r = city.size === "lg" ? cityDotR * 1.2 : city.size === "md" ? cityDotR : cityDotR * 0.7
+                return (
+                  <Marker key={`geo-${city.name}`} coordinates={city.coords}>
+                    <circle
+                      r={r}
+                      fill="hsl(220, 15%, 45%)"
+                      stroke="hsl(0, 0%, 5%)"
+                      strokeWidth={0.5 * inv}
+                    />
+                    <text
+                      textAnchor="middle"
+                      y={-(r + cityLabelSize * 0.6)}
+                      style={{
+                        fontFamily: "Inter, sans-serif",
+                        fontSize: `${city.size === "lg" ? cityLabelSize : cityLabelSize * 0.85}px`,
+                        fill: "hsl(220, 10%, 55%)",
+                        fontWeight: city.size === "lg" ? 500 : 400,
+                        pointerEvents: "none",
+                        userSelect: "none",
+                      }}
+                    >
+                      {city.name}
+                    </text>
+                  </Marker>
+                )
+              })}
+
+              {/* Layer 6: Shipment route arcs */}
+              {routeData.map(({ shipment, from, to }) => (
+                <g key={shipment.shipment_id}>
+                  {/* Visible line (rendered first, behind hit area) */}
+                  <Line
+                    from={from}
+                    to={to}
+                    stroke={getRouteColor(shipment.status)}
+                    strokeWidth={((shipment.status === "delayed" || shipment.status === "failed") ? 2 : 1.5) * inv}
+                    strokeLinecap="round"
+                    strokeDasharray={
+                      shipment.status === "in_transit" ? "6 4" :
+                      shipment.status === "delayed" ? "4 3" : undefined
+                    }
+                    style={{
+                      opacity: hoveredShipment?.shipment_id === shipment.shipment_id ? 1 : 0.6,
+                      pointerEvents: "none",
+                    }}
+                    className={shipment.status === "in_transit" ? "animate-dash" : ""}
+                  />
+                  {/* Wide invisible hit area on top — pointerEvents:"stroke" captures events on transparent strokes */}
+                  <Line
+                    from={from}
+                    to={to}
+                    stroke="transparent"
+                    strokeWidth={Math.max(12, 20 * inv)}
+                    strokeLinecap="round"
+                    style={{ cursor: "pointer", pointerEvents: "stroke" } as React.CSSProperties}
+                    onMouseEnter={(evt: React.MouseEvent) => {
+                      setHoveredShipment(shipment)
+                      const rect = mapRef.current?.getBoundingClientRect()
+                      if (rect) {
+                        setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
+                      }
+                    }}
+                    onMouseMove={(evt: React.MouseEvent) => {
+                      const rect = mapRef.current?.getBoundingClientRect()
+                      if (rect) {
+                        setTooltipPos({ x: evt.clientX - rect.left, y: evt.clientY - rect.top })
+                      }
+                    }}
+                    onMouseLeave={() => setHoveredShipment(null)}
+                  />
+                </g>
+              ))}
             </g>
           ))}
 
-          {/* Layer 6b: Reroute visualization — old route (faded dashed) + new route (highlighted) */}
-          {rerouteData?.old_route_geometry?.coordinates && rerouteData.old_route_geometry.coordinates.length >= 2 && (
-            rerouteData.old_route_geometry.coordinates.slice(0, -1).map((coord, i) => {
-              const next = rerouteData.old_route_geometry!.coordinates[i + 1]
-              return (
-                <Line
-                  key={`old-route-${i}`}
-                  from={coord as [number, number]}
-                  to={next as [number, number]}
-                  stroke="#ef4444"
-                  strokeWidth={2.5 * inv}
-                  strokeLinecap="round"
-                  strokeDasharray="6 4"
-                  style={{ opacity: 0.4 }}
-                />
-              )
-            })
-          )}
-          {rerouteData?.new_route_geometry?.coordinates && rerouteData.new_route_geometry.coordinates.length >= 2 && (
-            rerouteData.new_route_geometry.coordinates.slice(0, -1).map((coord, i) => {
-              const next = rerouteData.new_route_geometry!.coordinates[i + 1]
-              return (
-                <Line
-                  key={`new-route-${i}`}
-                  from={coord as [number, number]}
-                  to={next as [number, number]}
-                  stroke="#22d3ee"
-                  strokeWidth={3 * inv}
-                  strokeLinecap="round"
-                  style={{ opacity: 0.9 }}
-                  className="animate-dash"
-                />
-              )
-            })
-          )}
-          {/* Reroute endpoint markers */}
-          {rerouteData?.new_route_geometry?.coordinates && rerouteData.new_route_geometry.coordinates.length >= 2 && (
-            <>
-              <Marker coordinates={rerouteData.new_route_geometry.coordinates[0] as [number, number]}>
-                <circle r={4 * inv} fill="#22d3ee" stroke="#0e7490" strokeWidth={1.5 * inv} />
-                <text
-                  textAnchor="middle"
-                  y={-(6 * inv)}
-                  style={{ fontSize: `${5 * inv}px`, fill: "#22d3ee", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
-                >
-                  {rerouteData.new_route_origin || "New Origin"}
-                </text>
-              </Marker>
-              <Marker coordinates={rerouteData.new_route_geometry.coordinates[rerouteData.new_route_geometry.coordinates.length - 1] as [number, number]}>
-                <circle r={4 * inv} fill="#22d3ee" stroke="#0e7490" strokeWidth={1.5 * inv} />
-                <text
-                  textAnchor="middle"
-                  y={-(6 * inv)}
-                  style={{ fontSize: `${5 * inv}px`, fill: "#22d3ee", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
-                >
-                  {rerouteData.new_route_destination || "New Dest"}
-                </text>
-              </Marker>
-            </>
-          )}
+          {WORLD_WRAP_OFFSETS.map((wrapOffset) => (
+            <g
+              key={`overlay-copy-${wrapOffset}`}
+              transform={`translate(${wrapOffset * WORLD_COPY_WIDTH} 0)`}
+            >
+              {/* Layer 6b: Reroute visualization — old route (faded dashed) + new route (highlighted) */}
+              {rerouteData?.old_route_geometry?.coordinates && rerouteData.old_route_geometry.coordinates.length >= 2 && (
+                rerouteData.old_route_geometry.coordinates.slice(0, -1).map((coord, i) => {
+                  const next = rerouteData.old_route_geometry!.coordinates[i + 1]
+                  return (
+                    <Line
+                      key={`old-route-${i}`}
+                      from={coord as [number, number]}
+                      to={next as [number, number]}
+                      stroke="#ef4444"
+                      strokeWidth={2.5 * inv}
+                      strokeLinecap="round"
+                      strokeDasharray="6 4"
+                      style={{ opacity: 0.4 }}
+                    />
+                  )
+                })
+              )}
+              {rerouteData?.new_route_geometry?.coordinates && rerouteData.new_route_geometry.coordinates.length >= 2 && (
+                rerouteData.new_route_geometry.coordinates.slice(0, -1).map((coord, i) => {
+                  const next = rerouteData.new_route_geometry!.coordinates[i + 1]
+                  return (
+                    <Line
+                      key={`new-route-${i}`}
+                      from={coord as [number, number]}
+                      to={next as [number, number]}
+                      stroke="#22d3ee"
+                      strokeWidth={3 * inv}
+                      strokeLinecap="round"
+                      style={{ opacity: 0.9 }}
+                      className="animate-dash"
+                    />
+                  )
+                })
+              )}
+              {/* Reroute endpoint markers */}
+              {rerouteData?.new_route_geometry?.coordinates && rerouteData.new_route_geometry.coordinates.length >= 2 && (
+                <>
+                  <Marker coordinates={rerouteData.new_route_geometry.coordinates[0] as [number, number]}>
+                    <circle r={4 * inv} fill="#22d3ee" stroke="#0e7490" strokeWidth={1.5 * inv} />
+                    <text
+                      textAnchor="middle"
+                      y={-(6 * inv)}
+                      style={{ fontSize: `${5 * inv}px`, fill: "#22d3ee", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
+                    >
+                      {rerouteData.new_route_origin || "New Origin"}
+                    </text>
+                  </Marker>
+                  <Marker coordinates={rerouteData.new_route_geometry.coordinates[rerouteData.new_route_geometry.coordinates.length - 1] as [number, number]}>
+                    <circle r={4 * inv} fill="#22d3ee" stroke="#0e7490" strokeWidth={1.5 * inv} />
+                    <text
+                      textAnchor="middle"
+                      y={-(6 * inv)}
+                      style={{ fontSize: `${5 * inv}px`, fill: "#22d3ee", fontWeight: 700, fontFamily: "Inter, sans-serif" }}
+                    >
+                      {rerouteData.new_route_destination || "New Dest"}
+                    </text>
+                  </Marker>
+                </>
+              )}
 
-          {/* Layer 6c: Carrier switch visualization — highlight route with carrier info */}
-          {carrierSwitchData?.route_geometry?.coordinates && carrierSwitchData.route_geometry.coordinates.length >= 2 && (
-            <>
+              {/* Layer 6c: Carrier switch visualization — highlight route with carrier info */}
+              {carrierSwitchData?.route_geometry?.coordinates && carrierSwitchData.route_geometry.coordinates.length >= 2 && (
+                <>
               {/* Glow effect behind the route */}
               {carrierSwitchData.route_geometry.coordinates.slice(0, -1).map((coord, i) => {
                 const next = carrierSwitchData.route_geometry!.coordinates[i + 1]
@@ -725,46 +759,48 @@ function ShipmentMapInner({ shipments, rerouteData, carrierSwitchData }: Shipmen
                   </Marker>
                 )
               })()}
-            </>
-          )}
+                </>
+              )}
 
-          {/* Layer 7: Shipment city markers (always visible) */}
-          {activeCities.map((city) => {
-            const hasIssue = shipments.some(
-              (s) =>
-                (s.origin === city.name || s.destination === city.name) &&
-                (s.status === "delayed" || s.status === "failed")
-            )
-            return (
-              <Marker key={`ship-${city.name}`} coordinates={city.coords}>
-                {hasIssue && (
-                  <circle r={8 * inv} fill="none" stroke="#ef4444" strokeWidth={1 * inv} opacity={0.4}>
-                    <animate attributeName="r" from={`${4 * inv}`} to={`${12 * inv}`} dur="2s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" />
-                  </circle>
-                )}
-                <circle
-                  r={hasIssue ? shipmentDotR * 1.3 : shipmentDotR}
-                  fill={hasIssue ? "#ef4444" : "hsl(199, 89%, 48%)"}
-                  stroke="hsl(0, 0%, 3.9%)"
-                  strokeWidth={1.5 * inv}
-                />
-                <text
-                  textAnchor="middle"
-                  y={-shipmentLabelSize * 1.5}
-                  style={{
-                    fontFamily: "Inter, sans-serif",
-                    fontSize: `${shipmentLabelSize}px`,
-                    fill: hasIssue ? "#fca5a5" : "#a1a1aa",
-                    fontWeight: hasIssue ? 600 : 400,
-                    pointerEvents: "none",
-                  }}
-                >
-                  {city.name}
-                </text>
-              </Marker>
-            )
-          })}
+              {/* Layer 7: Shipment city markers (always visible) */}
+              {activeCities.map((city) => {
+                const hasIssue = shipments.some(
+                  (s) =>
+                    (s.origin === city.name || s.destination === city.name) &&
+                    (s.status === "delayed" || s.status === "failed")
+                )
+                return (
+                  <Marker key={`ship-${city.name}`} coordinates={city.coords}>
+                    {hasIssue && (
+                      <circle r={8 * inv} fill="none" stroke="#ef4444" strokeWidth={1 * inv} opacity={0.4}>
+                        <animate attributeName="r" from={`${4 * inv}`} to={`${12 * inv}`} dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" />
+                      </circle>
+                    )}
+                    <circle
+                      r={hasIssue ? shipmentDotR * 1.3 : shipmentDotR}
+                      fill={hasIssue ? "#ef4444" : "hsl(199, 89%, 48%)"}
+                      stroke="hsl(0, 0%, 3.9%)"
+                      strokeWidth={1.5 * inv}
+                    />
+                    <text
+                      textAnchor="middle"
+                      y={-shipmentLabelSize * 1.5}
+                      style={{
+                        fontFamily: "Inter, sans-serif",
+                        fontSize: `${shipmentLabelSize}px`,
+                        fill: hasIssue ? "#fca5a5" : "#a1a1aa",
+                        fontWeight: hasIssue ? 600 : 400,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {city.name}
+                    </text>
+                  </Marker>
+                )
+              })}
+            </g>
+          ))}
         </ZoomableGroup>
       </ComposableMap>
 

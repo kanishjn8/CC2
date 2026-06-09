@@ -1,9 +1,11 @@
 """Seed the database with initial warehouses, carriers, routes, and shipments."""
 
 import logging
+import json
 import random
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 from geoalchemy2.shape import from_shape
@@ -19,6 +21,7 @@ from app.models import (
 )
 
 log = logging.getLogger("cc2.seed")
+MARITIME_ROUTE_CACHE = Path(__file__).resolve().parent / "data" / "maritime_routes.json"
 
 # ---------------------------------------------------------------------------
 # Global city network — covers Asia, Europe, Americas, Middle East, Africa,
@@ -108,22 +111,77 @@ CARRIER_NAMES = [
     "GlobalFreight", "OceanLink", "AirBridge", "SilkRoute",
 ]
 
+_MARITIME_CACHE: dict | None = None
+
 
 def _uid(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
+def _load_maritime_cache() -> dict:
+    """Load curated maritime ports and route geometries from local JSON."""
+    global _MARITIME_CACHE
+    if _MARITIME_CACHE is None:
+        with MARITIME_ROUTE_CACHE.open("r", encoding="utf-8") as f:
+            _MARITIME_CACHE = json.load(f)
+    return _MARITIME_CACHE
+
+
+def _coords_for_location(city: str) -> tuple[float, float]:
+    """Return port coordinates when known, otherwise city-center coordinates."""
+    ports = _load_maritime_cache().get("ports", {})
+    port = ports.get(city)
+    if port:
+        lon, lat = port["coordinates"]
+        return float(lon), float(lat)
+    return CITY_COORDS[city]
+
+
 def _point(city: str):
     """Return a WKB POINT geometry for a city name (SRID 4326)."""
-    lon, lat = CITY_COORDS[city]
+    lon, lat = _coords_for_location(city)
     return from_shape(Point(lon, lat), srid=4326)
 
 
 def _linestring(origin_city: str, dest_city: str):
     """Return a WKB LINESTRING from origin to destination (SRID 4326)."""
-    o_lon, o_lat = CITY_COORDS[origin_city]
-    d_lon, d_lat = CITY_COORDS[dest_city]
+    o_lon, o_lat = _coords_for_location(origin_city)
+    d_lon, d_lat = _coords_for_location(dest_city)
     return from_shape(LineString([(o_lon, o_lat), (d_lon, d_lat)]), srid=4326)
+
+
+def _maritime_linestring(waypoints: list[list[float]]):
+    """Return a WKB LINESTRING from cached maritime waypoints."""
+    return from_shape(
+        LineString([(float(lon), float(lat)) for lon, lat in waypoints]),
+        srid=4326,
+    )
+
+
+def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Great-circle distance between lon/lat points."""
+    import math
+
+    lon1, lat1 = a
+    lon2, lat2 = b
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    h = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
+    return 6371 * 2 * math.asin(math.sqrt(h))
+
+
+def _polyline_distance_km(waypoints: list[list[float]]) -> float:
+    """Approximate route distance along a waypoint polyline."""
+    total = 0.0
+    points = [(float(lon), float(lat)) for lon, lat in waypoints]
+    for start, end in zip(points, points[1:]):
+        total += _haversine_km(start, end)
+    return round(total, 1)
 
 
 def seed_warehouses(db: Session, count: int = 10) -> list[WarehouseState]:
@@ -230,18 +288,22 @@ def seed_carriers(db: Session, count: int = 12) -> list[CarrierPerformance]:
 
 def seed_routes(db: Session, count: int = 30) -> list[Route]:
     routes = []
-    log.info("Seeding %d global routes (with diverse traffic & weather)…", count)
-    import math
+    log.info("Seeding %d maritime routes (with diverse traffic & weather)…", count)
+    cached_routes = _load_maritime_cache().get("routes", [])
+    if not cached_routes:
+        raise RuntimeError(f"No maritime routes found in {MARITIME_ROUTE_CACHE}")
 
-    for i in range(count):
-        o, d = random.sample(CITIES, 2)
-        o_lon, o_lat = CITY_COORDS[o]
-        d_lon, d_lat = CITY_COORDS[d]
-        # Haversine-approximate distance (km)
-        dlat = math.radians(d_lat - o_lat)
-        dlon = math.radians(d_lon - o_lon)
-        a = math.sin(dlat/2)**2 + math.cos(math.radians(o_lat)) * math.cos(math.radians(d_lat)) * math.sin(dlon/2)**2
-        dist_km = round(6371 * 2 * math.asin(math.sqrt(a)), 1)
+    if count <= len(cached_routes):
+        route_defs = random.sample(cached_routes, count)
+    else:
+        route_defs = list(cached_routes)
+        route_defs.extend(random.choices(cached_routes, k=count - len(cached_routes)))
+
+    for i, route_def in enumerate(route_defs):
+        o = route_def["origin"]
+        d = route_def["destination"]
+        waypoints = route_def["waypoints"]
+        dist_km = route_def.get("distance_km") or _polyline_distance_km(waypoints)
 
         # Diversity: some routes have severe traffic + bad weather
         if i < 3:
@@ -268,12 +330,15 @@ def seed_routes(db: Session, count: int = 30) -> list[Route]:
             distance=dist_km,
             traffic_level=traffic,
             weather_factor=weather,
-            path=_linestring(o, d),
+            path=_maritime_linestring(waypoints),
         )
         db.add(route)
         routes.append(route)
-        log.debug("  Route %s: %s → %s  %.0f km  traffic=%s weather=%.2f",
-                  route.route_id, o, d, dist_km, traffic.value, weather)
+        log.debug(
+            "  Route %s: %s → %s  %.0f km  corridor=%s traffic=%s weather=%.2f",
+            route.route_id, o, d, dist_km, route_def.get("corridor", "maritime"),
+            traffic.value, weather,
+        )
     db.flush()
     log.info("  ✓ %d routes created", len(routes))
     return routes

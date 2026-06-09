@@ -3,6 +3,7 @@ Seed function tests — verify that seed helpers produce correct, consistent dat
 """
 
 import pytest
+from geoalchemy2.shape import to_shape
 
 from app.models import (
     CarrierPerformance,
@@ -146,6 +147,13 @@ class TestSeedRoutes:
         routes = seed_routes(db, count=10)
         for r in routes:
             assert r.origin != r.destination
+
+    def test_routes_use_maritime_waypoint_geometry(self, db):
+        routes = seed_routes(db, count=10)
+        for r in routes:
+            shape = to_shape(r.path)
+            assert shape.geom_type == "LineString"
+            assert len(shape.coords) > 2
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
