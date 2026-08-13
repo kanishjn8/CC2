@@ -1,6 +1,6 @@
-#+ CC2 — AI Logistics Control Center
+#+ RouteSense — AI Logistics Control Center
 
-CC2 is a full-stack, AI-assisted **logistics monitoring + control** demo.
+RouteSense is a full-stack, AI-assisted **logistics monitoring + control** demo.
 
 It simulates a live logistics network (shipments, warehouses, carriers, routes), continuously emits events into Postgres, and runs an **Observe → Detect → Reason → Decide → Act → Learn** agent loop that turns those events into operator-facing decisions (reroutes, carrier switches, alerts).
 
