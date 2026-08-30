@@ -53,12 +53,19 @@ def reroute_shipment(db: Session, shipment_id: str) -> dict:
     # Capture old route geometry before switching
     old_route = db.query(Route).filter_by(route_id=shipment.route_id).first() if shipment.route_id else None
 
-    best_route = (
+    candidate_routes = (
         db.query(Route)
         .filter(Route.route_id != shipment.route_id)
         .filter(Route.traffic_level.in_([TrafficLevel.low, TrafficLevel.moderate]))
         .order_by(Route.weather_factor.asc())
-        .first()
+        .all()
+    )
+    same_lane_routes = [
+        r for r in candidate_routes
+        if r.origin == shipment.origin and r.destination == shipment.destination
+    ]
+    best_route = same_lane_routes[0] if same_lane_routes else (
+        candidate_routes[0] if candidate_routes else None
     )
     if not best_route:
         return {"success": False, "reason": "No better route available"}

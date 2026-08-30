@@ -10,6 +10,13 @@ from datetime import datetime
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
+from app.ai_agent.risk_models import DelayRiskModel, FEATURE_NAMES
+from app.config import (
+    RISK_MODEL_REAL_SAMPLE_WEIGHT,
+    RISK_MODEL_RETRAIN_INTERVAL_CYCLES,
+    RISK_MODEL_RETRAIN_MIN_SAMPLES,
+    RISK_MODEL_RETRAIN_SYNTHETIC_SAMPLES,
+)
 from app.models import DecisionLog, Shipment, ShipmentStatus
 
 
@@ -114,6 +121,119 @@ def evaluate_outcomes(db: Session):
                     (shipment.sla_deadline - shipment.eta).total_seconds() / 3600, 2
                 )
                 dec.resolved_at = now
+
+
+# ── Delay model retraining data ──────────────────────────────────────────────
+
+OUTCOME_TO_DELAY_LABEL = {
+    "success": 0,
+    "failed": 1,
+}
+
+
+def extract_delay_training_samples(
+    db: Session,
+    *,
+    limit: int = 2000,
+) -> list[tuple[dict, int]]:
+    """Build training samples from resolved delay-risk decisions.
+
+    Labels are derived from evaluated outcomes:
+    - success -> 0, the shipment stayed within SLA
+    - failed -> 1, the shipment missed SLA or failed
+    """
+    decisions = (
+        db.query(DecisionLog)
+        .filter(
+            DecisionLog.risk_type == "delay_risk",
+            DecisionLog.outcome.in_(list(OUTCOME_TO_DELAY_LABEL)),
+            DecisionLog.evidence.isnot(None),
+        )
+        .order_by(DecisionLog.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    samples: list[tuple[dict, int]] = []
+    seen: set[tuple] = set()
+    for dec in decisions:
+        features = _extract_model_features(dec.evidence)
+        if features is None:
+            continue
+
+        label = OUTCOME_TO_DELAY_LABEL[dec.outcome]
+        fingerprint = (
+            dec.shipment_id,
+            label,
+            tuple(round(float(features[name]), 6) for name in FEATURE_NAMES),
+        )
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        samples.append((features, label))
+
+    return samples
+
+
+def should_retrain_delay_model(
+    cycle_count: int,
+    *,
+    interval_cycles: int = RISK_MODEL_RETRAIN_INTERVAL_CYCLES,
+) -> bool:
+    """Return True when this agent cycle should attempt model retraining."""
+    return interval_cycles > 0 and cycle_count > 0 and cycle_count % interval_cycles == 0
+
+
+def retrain_delay_model_from_learning_data(
+    db: Session,
+    model: DelayRiskModel,
+    *,
+    min_samples: int = RISK_MODEL_RETRAIN_MIN_SAMPLES,
+    synthetic_samples: int = RISK_MODEL_RETRAIN_SYNTHETIC_SAMPLES,
+    real_sample_weight: float = RISK_MODEL_REAL_SAMPLE_WEIGHT,
+) -> dict:
+    """Retrain the delay model with resolved decision outcomes when available."""
+    samples = extract_delay_training_samples(db)
+    if len(samples) < min_samples:
+        return {
+            "retrained": False,
+            "reason": "not_enough_real_samples",
+            "real_samples": len(samples),
+            "min_samples": min_samples,
+            "training": model.get_training_summary(),
+        }
+
+    metadata = model.train(
+        n_samples=synthetic_samples,
+        training_samples=samples,
+        real_sample_weight=real_sample_weight,
+    )
+    return {
+        "retrained": True,
+        "real_samples": len(samples),
+        "min_samples": min_samples,
+        "training": metadata,
+    }
+
+
+def _extract_model_features(evidence_raw: str | None) -> dict | None:
+    """Read a feature snapshot from a decision evidence JSON blob."""
+    if not evidence_raw:
+        return None
+
+    try:
+        evidence = json.loads(evidence_raw)
+    except (TypeError, ValueError):
+        return None
+
+    features = evidence.get("model_features") or evidence.get("features")
+    if not isinstance(features, dict):
+        return None
+
+    try:
+        return {name: float(features[name]) for name in FEATURE_NAMES}
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 # ── Aggregate metrics ────────────────────────────────────────────────────────

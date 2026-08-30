@@ -26,14 +26,18 @@ AGENT_TICK_INTERVAL: float = float(os.getenv("AGENT_TICK_INTERVAL", "60.0"))  # 
 RISK_THRESHOLD: float = float(os.getenv("RISK_THRESHOLD", "0.6"))
 BOTTLENECK_THRESHOLD: float = float(os.getenv("BOTTLENECK_THRESHOLD", "0.85"))
 CARRIER_RELIABILITY_THRESHOLD: float = float(os.getenv("CARRIER_RELIABILITY_THRESHOLD", "0.5"))
+RISK_MODEL_RETRAIN_INTERVAL_CYCLES: int = int(os.getenv("RISK_MODEL_RETRAIN_INTERVAL_CYCLES", "10"))
+RISK_MODEL_RETRAIN_MIN_SAMPLES: int = int(os.getenv("RISK_MODEL_RETRAIN_MIN_SAMPLES", "25"))
+RISK_MODEL_RETRAIN_SYNTHETIC_SAMPLES: int = int(os.getenv("RISK_MODEL_RETRAIN_SYNTHETIC_SAMPLES", "2000"))
+RISK_MODEL_REAL_SAMPLE_WEIGHT: float = float(os.getenv("RISK_MODEL_REAL_SAMPLE_WEIGHT", "4.0"))
 
 # LLM rate-limiting — minimum seconds between any two LLM API calls
-LLM_CALL_COOLDOWN: float = float(os.getenv("LLM_CALL_COOLDOWN", "30.0"))  # 30 seconds default
+LLM_CALL_COOLDOWN: float = float(os.getenv("LLM_CALL_COOLDOWN", "300.0"))  # 30 seconds default
 
 # Gemini LLM
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-GEMINI_PRIMARY_MODEL: str = os.getenv("GEMINI_PRIMARY_MODEL", "models/gemini-2.0-flash")
-GEMINI_FALLBACK_MODEL: str = os.getenv("GEMINI_FALLBACK_MODEL", "models/gemini-2.0-flash-lite")
+GEMINI_PRIMARY_MODEL: str = os.getenv("GEMINI_PRIMARY_MODEL", "models/gemini-2.5-flash")
+GEMINI_FALLBACK_MODEL: str = os.getenv("GEMINI_FALLBACK_MODEL", "models/gemini-3.1-flash-lite-preview")
 
 # SMTP Email (for alert actions)
 SMTP_HOST: str = os.getenv("SMTP_HOST", "")

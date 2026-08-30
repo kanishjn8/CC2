@@ -21,6 +21,7 @@ from app.ai_agent.observer import (
 )
 from app.ai_agent.risk_models import (
     DelayRiskModel,
+    FEATURE_NAMES,
     detect_bottlenecks,
     detect_carrier_degradation,
 )
@@ -40,6 +41,8 @@ from app.ai_agent.learning import (
     log_decision,
     evaluate_outcomes,
     has_pending_decision,
+    retrain_delay_model_from_learning_data,
+    should_retrain_delay_model,
 )
 from app.ai_agent.llm_client import call_llm
 from app.config import (
@@ -452,6 +455,20 @@ def _build_action_details(risk: RiskItem, best: dict, result: dict | None = None
     return details
 
 
+def _build_decision_evidence(risk: RiskItem) -> dict:
+    """Include model inputs in delay-risk evidence so resolved outcomes can train."""
+    evidence = dict(risk.get("explanation", {}).get("evidence") or {})
+    if risk["type"] == "delay_risk":
+        features = risk.get("features") or {}
+        evidence["model_features"] = {
+            name: float(features[name])
+            for name in FEATURE_NAMES
+            if name in features
+        }
+        evidence["model_feature_names"] = list(FEATURE_NAMES)
+    return evidence
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # NODE: act
 # ═════════════════════════════════════════════════════════════════════════════
@@ -478,7 +495,7 @@ def act_node(state: AgentState) -> dict:
             shipment_id=risk.get("shipment_id"),
             risk_score=risk["risk_score"],
             problem=risk["explanation"]["problem"],
-            evidence=risk["explanation"]["evidence"],
+            evidence=_build_decision_evidence(risk),
             root_cause=risk["explanation"]["root_cause"],
             confidence=risk["explanation"]["confidence"],
             recommended_action=best["action"],
@@ -546,12 +563,20 @@ def act_node(state: AgentState) -> dict:
                     shipment_obj = db.query(Shipment).filter_by(shipment_id=sid).first()
                     if shipment_obj:
                         old_route = db.query(Route).filter_by(route_id=shipment_obj.route_id).first() if shipment_obj.route_id else None
-                        best_route = (
+                        candidate_routes = (
                             db.query(Route)
                             .filter(Route.route_id != shipment_obj.route_id)
                             .filter(Route.traffic_level.in_([TrafficLevel.low, TrafficLevel.moderate]))
                             .order_by(Route.weather_factor.asc())
-                            .first()
+                            .all()
+                        )
+                        same_lane_routes = [
+                            r for r in candidate_routes
+                            if r.origin == shipment_obj.origin
+                            and r.destination == shipment_obj.destination
+                        ]
+                        best_route = same_lane_routes[0] if same_lane_routes else (
+                            candidate_routes[0] if candidate_routes else None
                         )
                         if old_route:
                             action_context["old_route_geometry"] = _linestring_geojson(old_route.path)
@@ -570,7 +595,7 @@ def act_node(state: AgentState) -> dict:
             shipment_id=risk.get("shipment_id"),
             risk_score=risk["risk_score"],
             problem=risk["explanation"]["problem"],
-            evidence=risk["explanation"]["evidence"],
+            evidence=_build_decision_evidence(risk),
             root_cause=risk["explanation"]["root_cause"],
             confidence=risk["explanation"]["confidence"],
             recommended_action=best["action"],
@@ -594,6 +619,24 @@ def learn_node(state: AgentState) -> dict:
     db = get_db(state["db_session_id"])
 
     evaluate_outcomes(db)
+    cycle_count = state.get("cycle_count", 0)
+    if should_retrain_delay_model(cycle_count):
+        retrain_result = retrain_delay_model_from_learning_data(db, get_delay_model())
+        if retrain_result["retrained"]:
+            training = retrain_result["training"]
+            log.info(
+                "📈 RETRAIN — delay model source=%s real=%d synthetic=%d accuracy=%.3f",
+                training["source"],
+                training["real_samples"],
+                training["synthetic_samples"],
+                training["accuracy"],
+            )
+        else:
+            log.info(
+                "📈 RETRAIN skipped — %d/%d real samples available",
+                retrain_result["real_samples"],
+                retrain_result["min_samples"],
+            )
 
     # Build combined risk list for the API
     all_risks: list[dict] = []

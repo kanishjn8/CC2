@@ -60,7 +60,7 @@ RouteSense is an end-to-end logistics monitoring platform with an autonomous AI 
 
 ---
 
-## Architecture
+It simulates a live logistics network (shipments, warehouses, carriers, routes), continuously emits events into Postgres, and runs an **Observe → Detect → Reason → Decide → Act → Learn** agent loop that turns those events into operator-facing decisions (reroutes, carrier switches, alerts).
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -370,7 +370,41 @@ Six pages built with Next.js, Tailwind CSS, and Radix UI:
 
 ---
 
-## Database Schema
+## Database schema (conceptual)
+
+These are the main tables.
+
+* `shipments` — shipments with status, ETA/SLA, and optional geometry points
+* `warehouse_state` — capacity/load/queue/congestion and optional geometry
+* `carrier_performance` — reliability, delay probability, pickup rate, totals
+* `routes` — origin/destination, distance, traffic/weather, optional line geometry
+* `simulation_events` — immutable event stream emitted by simulator
+* `decision_log` — agent decision history + approval / outcome tracking
+
+For full DDL, see `backend/schema.sql`.
+
+---
+
+## Deployment notes (Railway/Vercel)
+
+This repo has been used with:
+
+* **Railway** for backend + Postgres
+  * `backend/Dockerfile` runs `uvicorn main:app` on port `8000`
+  * `backend/railway.toml` sets healthcheck path `/health`
+* **Vercel** for frontend
+  * remember `NEXT_PUBLIC_API_URL` must include `https://`
+
+---
+
+## Tests
+
+Backend tests live in `backend/tests/`.
+
+```bash
+cd backend
+uv run pytest
+```
 
 Six tables on PostgreSQL 16 + PostGIS:
 

@@ -17,7 +17,7 @@ from app.ai_agent.nodes import (
     learn_node,
 )
 
-log = logging.getLogger("cc2.graph")
+log = logging.getLogger("Routesense.graph")
 
 
 def _route_after_detect(state: AgentState) -> str:

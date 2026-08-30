@@ -8,11 +8,15 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.models import DecisionLog, Shipment, ShipmentStatus
+from app.ai_agent.risk_models import DelayRiskModel
 from app.ai_agent.learning import (
     has_pending_decision,
     log_decision,
     evaluate_outcomes,
     get_metrics,
+    extract_delay_training_samples,
+    retrain_delay_model_from_learning_data,
+    should_retrain_delay_model,
 )
 from tests.conftest import make_carrier, make_shipment
 
@@ -35,6 +39,21 @@ def _make_decision(db, *, entity_id="SH-001", risk_type="delay_risk",
         requires_approval=kwargs.get("requires_approval", False),
         status=status,
     )
+
+
+def _model_features(**overrides):
+    defaults = {
+        "distance": 1200.0,
+        "traffic_level": 2,
+        "weather_factor": 1.2,
+        "congestion_score": 0.5,
+        "reliability_score": 0.85,
+        "delay_probability": 0.15,
+        "pickup_success_rate": 0.92,
+        "eta_sla_buffer_hours": 10.0,
+    }
+    defaults.update(overrides)
+    return defaults
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -137,9 +156,10 @@ class TestEvaluateOutcomes:
 
     def test_in_transit_beyond_sla_is_failure(self, db):
         carrier = make_carrier(db)
-        # ETA and SLA in the past → already missed
+    # Condition under test: if ETA already exceeds SLA while still in-transit,
+    # the intervention is considered failed.
         ship = make_shipment(db, carrier, status=ShipmentStatus.in_transit,
-                             eta_offset_hours=-5, sla_offset_hours=-2)
+                 eta_offset_hours=5, sla_offset_hours=2)
         dec = _make_decision(db, entity_id=ship.shipment_id, shipment_id=ship.shipment_id)
         db.flush()
 
@@ -165,6 +185,91 @@ class TestEvaluateOutcomes:
         evaluate_outcomes(db)
 
         assert dec.outcome == "pending"  # can't resolve without shipment
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# delay model feedback samples
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestDelayTrainingSamples:
+
+    def test_extracts_resolved_delay_risk_samples(self, db):
+        d1 = _make_decision(
+            db,
+            entity_id="SH-learn-success",
+            evidence={"model_features": _model_features(distance=300)},
+        )
+        d1.outcome = "success"
+        d2 = _make_decision(
+            db,
+            entity_id="SH-learn-failed",
+            evidence={"model_features": _model_features(distance=2300)},
+        )
+        d2.outcome = "failed"
+        db.flush()
+
+        samples = extract_delay_training_samples(db)
+
+        assert len(samples) == 2
+        labels = {label for _, label in samples}
+        assert labels == {0, 1}
+
+    def test_ignores_pending_and_missing_feature_samples(self, db):
+        _make_decision(
+            db,
+            entity_id="SH-pending",
+            evidence={"model_features": _model_features()},
+        )
+        resolved_without_features = _make_decision(
+            db,
+            entity_id="SH-no-features",
+            evidence={"other": True},
+        )
+        resolved_without_features.outcome = "failed"
+        db.flush()
+
+        assert extract_delay_training_samples(db) == []
+
+    def test_should_retrain_delay_model_uses_cycle_interval(self):
+        assert should_retrain_delay_model(0, interval_cycles=10) is False
+        assert should_retrain_delay_model(9, interval_cycles=10) is False
+        assert should_retrain_delay_model(10, interval_cycles=10) is True
+        assert should_retrain_delay_model(10, interval_cycles=0) is False
+
+    def test_retrain_skips_until_minimum_samples(self, db):
+        model = DelayRiskModel()
+        result = retrain_delay_model_from_learning_data(db, model, min_samples=1)
+
+        assert result["retrained"] is False
+        assert result["reason"] == "not_enough_real_samples"
+
+    def test_retrain_uses_resolved_learning_samples(self, db):
+        success = _make_decision(
+            db,
+            entity_id="SH-real-1",
+            evidence={"model_features": _model_features(distance=200, eta_sla_buffer_hours=24)},
+        )
+        success.outcome = "success"
+        failed = _make_decision(
+            db,
+            entity_id="SH-real-2",
+            evidence={"model_features": _model_features(distance=2400, eta_sla_buffer_hours=-4)},
+        )
+        failed.outcome = "failed"
+        db.flush()
+
+        model = DelayRiskModel()
+        result = retrain_delay_model_from_learning_data(
+            db,
+            model,
+            min_samples=2,
+            synthetic_samples=50,
+        )
+
+        assert result["retrained"] is True
+        assert model.is_trained is True
+        assert result["training"]["source"] == "hybrid"
+        assert result["training"]["real_samples"] == 2
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

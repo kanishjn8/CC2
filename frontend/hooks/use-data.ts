@@ -37,6 +37,7 @@ const DEFAULT_AGENT_STATUS: AgentStatus = {
   running: false,
   cycle_count: 0,
   model_trained: false,
+  model_training: {},
   total_decisions: 0,
   pending_approvals: 0,
 }

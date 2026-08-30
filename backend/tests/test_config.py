@@ -75,13 +75,25 @@ class TestConfigDefaults:
             importlib.reload(cfg)
             assert cfg.RISK_THRESHOLD == 0.6
 
+    def test_risk_model_retrain_interval_default(self):
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k != "RISK_MODEL_RETRAIN_INTERVAL_CYCLES"
+        }
+        with patch.dict(os.environ, env, clear=True):
+            import importlib
+            import app.config as cfg
+            importlib.reload(cfg)
+            assert cfg.RISK_MODEL_RETRAIN_INTERVAL_CYCLES == 10
+
     def test_llm_call_cooldown_default(self):
         env = {k: v for k, v in os.environ.items() if k != "LLM_CALL_COOLDOWN"}
         with patch.dict(os.environ, env, clear=True):
             import importlib
             import app.config as cfg
             importlib.reload(cfg)
-            assert cfg.LLM_CALL_COOLDOWN == 30.0
+            assert cfg.LLM_CALL_COOLDOWN == 300.0
 
     def test_smtp_use_tls_default_true(self):
         env = {k: v for k, v in os.environ.items() if k != "SMTP_USE_TLS"}

@@ -138,7 +138,7 @@ class TestAgentStatus:
     def test_shape(self, client, db):
         data = client.get("/api/agent/status").json()
         for field in ("running", "cycle_count", "model_trained",
-                      "total_decisions", "pending_approvals"):
+                      "model_training", "total_decisions", "pending_approvals"):
             assert field in data
 
 

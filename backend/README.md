@@ -130,8 +130,10 @@ Interactive docs (Swagger UI) at **http://localhost:8000/docs**.
 On startup the server will:
 1. Wait for Postgres to accept connections (retries automatically)
 2. Create all database tables
-3. Seed initial data (skipped if already present)
+3. Seed initial data (skipped if already present), including ship routes from `app/data/maritime_routes.json`
 4. Start the background simulation engine
+
+Seeded route geometries are local cached maritime polylines. No external routing API is called during ticks.
 
 ---
 
@@ -148,8 +150,20 @@ Copy `.env.example` to `.env` and adjust as needed.
 | `SEED_CARRIERS` | `8` | Number of carriers to seed |
 | `SEED_ROUTES` | `12` | Number of routes to seed |
 | `SEED_SHIPMENTS` | `20` | Number of shipments to seed |
+| `RISK_MODEL_RETRAIN_INTERVAL_CYCLES` | `10` | Attempt delay-model retraining every N agent cycles (`0` disables it) |
+| `RISK_MODEL_RETRAIN_MIN_SAMPLES` | `25` | Minimum resolved real samples before retraining |
+| `RISK_MODEL_RETRAIN_SYNTHETIC_SAMPLES` | `2000` | Synthetic backfill samples used during hybrid retraining |
+| `RISK_MODEL_REAL_SAMPLE_WEIGHT` | `4.0` | Weight multiplier for resolved real learning samples |
 
 > When running the full Docker stack, environment variables are set directly in `docker-compose.yaml` and `.env` is **not** used by the container.
+
+---
+
+## Delay-risk learning feedback loop
+
+The delay-risk model starts with synthetic training data so it can score shipments immediately. During agent cycles, delay-risk decisions store the exact model feature snapshot in `decision_log.evidence.model_features`. Once `learning.evaluate_outcomes()` resolves those decisions, `success` becomes a no-delay label and `failed` becomes a delay/missed-SLA label. The Learn node periodically retrains the in-memory model with a hybrid synthetic + real dataset when enough resolved samples exist.
+
+Full details are in `../docs/risk-model-feedback-loop.md`.
 
 ---
 
